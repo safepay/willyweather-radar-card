@@ -41,7 +41,7 @@ class WillyWeatherRadarCard extends LitElement {
     if (!config) {
       throw new Error("Invalid configuration");
     }
-
+  
     const oldConfig = this.config;
     
     this.config = {
@@ -49,7 +49,7 @@ class WillyWeatherRadarCard extends LitElement {
       frames: config.frames || 7,
       ...config
     };
-
+  
     // If this is a config update after initial load, handle zoom change
     if (oldConfig && this._map) {
       if (oldConfig.zoom !== this.config.zoom) {
@@ -61,9 +61,10 @@ class WillyWeatherRadarCard extends LitElement {
       this._timestamps = [];
       this._loading = false;
       this._currentMapType = null;
+      this._isVisible = true; // Assume visible initially
     }
   }
-
+  
   static get styles() {
     return css`
       :host {
@@ -179,8 +180,39 @@ class WillyWeatherRadarCard extends LitElement {
 
   async firstUpdated() {
     await this._initialize();
+    this._setupVisibilityObserver();
   }
-
+  
+  _setupVisibilityObserver() {
+    // Use Intersection Observer to detect when card is visible
+    this._intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            // Card is visible - resume animation
+            console.log('Card visible - resuming animation');
+            this._isVisible = true;
+            if (this._timestamps.length > 0 && !this._animationInterval) {
+              this._startAnimation();
+            }
+          } else {
+            // Card is hidden - pause animation
+            console.log('Card hidden - pausing animation');
+            this._isVisible = false;
+            this._stopAnimation();
+          }
+        });
+      },
+      {
+        threshold: 0.1, // Trigger when at least 10% of card is visible
+        rootMargin: '50px' // Start loading slightly before card enters viewport
+      }
+    );
+  
+    // Observe the card element
+    this._intersectionObserver.observe(this);
+  }
+  
   async updated(changedProperties) {
     super.updated(changedProperties);
     
@@ -197,9 +229,26 @@ class WillyWeatherRadarCard extends LitElement {
     if (!this._map) {
       this._initMap();
       await this._startAutoUpdate();
+      this._setupVisibilityObserver();
+      this._setupPageVisibility();
     }
   }
-
+  
+  _setupPageVisibility() {
+    // Pause animation when browser tab is hidden
+    this._handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('Tab hidden - pausing animation');
+        this._stopAnimation();
+      } else if (this._isVisible) {
+        console.log('Tab visible - resuming animation');
+        this._startAnimation();
+      }
+    };
+  
+    document.addEventListener('visibilitychange', this._handleVisibilityChange);
+  }
+  
   async _loadLeaflet() {
     if (window.L) return;
 
@@ -277,23 +326,22 @@ class WillyWeatherRadarCard extends LitElement {
       clearInterval(this._animationInterval);
       this._animationInterval = null;
     }
-
+  
+    // Only start if card is visible
+    if (!this._isVisible) {
+      console.log('Skipping animation start - card not visible');
+      return;
+    }
+  
     // Start new animation
     this._animationInterval = setInterval(() => {
-      if (this._timestamps.length > 0) {
+      if (this._timestamps.length > 0 && this._isVisible) {
         this._currentFrame = (this._currentFrame + 1) % Math.min(this.config.frames, this._timestamps.length);
         this._updateRadar();
       }
     }, 800);
   }
-
-  _stopAnimation() {
-    if (this._animationInterval) {
-      clearInterval(this._animationInterval);
-      this._animationInterval = null;
-    }
-  }
-
+  
   _getMapType(zoom) {
     // MUST MATCH SERVER LOGIC EXACTLY
     const zoomRadius = 5000 / Math.pow(2, zoom - 5);
@@ -475,6 +523,17 @@ class WillyWeatherRadarCard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     
+    // Clean up page visibility listener
+    if (this._handleVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._handleVisibilityChange);
+    }
+    
+    // Clean up intersection observer
+    if (this._intersectionObserver) {
+      this._intersectionObserver.disconnect();
+      this._intersectionObserver = null;
+    }
+    
     this._stopAnimation();
     
     if (this._reloadInterval) {
@@ -487,8 +546,8 @@ class WillyWeatherRadarCard extends LitElement {
       this._map.remove();
       this._map = null;
     }
-  }
-
+  }  
+  
   getCardSize() {
     return 5;
   }
@@ -498,7 +557,11 @@ class WillyWeatherRadarCardEditor extends LitElement {
   static get properties() {
     return {
       hass: { type: Object },
-      config: { type: Object }
+      config: { type: Object },
+      _currentFrame: { type: Number, state: true },
+      _timestamps: { type: Array, state: true },
+      _loading: { type: Boolean, state: true },
+      _isVisible: { type: Boolean, state: true }
     };
   }
 
