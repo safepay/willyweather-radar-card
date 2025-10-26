@@ -545,8 +545,33 @@ class WillyWeatherRadarCard extends LitElement {
     }
     if (this._radarAbortController) {
       this._radarAbortController.abort();
+    }
+    
+    // Clean up page visibility listener
+    if (this._handleVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._handleVisibilityChange);
+    }
+    
+    // Clean up intersection observer
+    if (this._intersectionObserver) {
+      this._intersectionObserver.disconnect();
+      this._intersectionObserver = null;
+    }
+    
+    this._stopAnimation();
+    
+    if (this._reloadInterval) {
+      clearInterval(this._reloadInterval);
+    }
+    
+    this._clearAllOverlays();
+    
+    if (this._map) {
+      this._map.remove();
+      this._map = null;
+    }
   }
-
+  
   getCardSize() {
     return 5;
   }
