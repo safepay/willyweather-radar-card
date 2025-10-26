@@ -5,6 +5,16 @@
 import { LitElement, html, css } from "https://unpkg.com/lit@3.1.0/index.js?module";
 
 class WillyWeatherRadarCard extends LitElement {
+  constructor() {
+    super();
+    // Initialize state early
+    this._isVisible = true;
+    this._currentFrame = 0;
+    this._timestamps = [];
+    this._loading = false;
+    this._currentMapType = null;
+  }
+
   static getStubConfig() {
     return {
       zoom: 10,
@@ -56,13 +66,6 @@ class WillyWeatherRadarCard extends LitElement {
       if (oldConfig.zoom !== this.config.zoom) {
         this._map.setZoom(this.config.zoom);
       }
-    } else {
-      // Initial setup
-      this._currentFrame = 0;
-      this._timestamps = [];
-      this._loading = false;
-      this._currentMapType = null;
-      this._isVisible = true; // Assume visible initially
     }
   }
 
@@ -204,51 +207,6 @@ class WillyWeatherRadarCard extends LitElement {
     }
   }
 
-  _setupVisibilityObserver() {
-    // Use Intersection Observer to detect when card is visible
-    this._intersectionObserver = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            // Card is visible - resume animation
-            console.log('Card visible - resuming animation');
-            this._isVisible = true;
-            if (this._timestamps.length > 0 && !this._animationInterval) {
-              this._startAnimation();
-            }
-          } else {
-            // Card is hidden - pause animation
-            console.log('Card hidden - pausing animation');
-            this._isVisible = false;
-            this._stopAnimation();
-          }
-        });
-      },
-      {
-        threshold: 0.1, // Trigger when at least 10% of card is visible
-        rootMargin: '50px' // Start loading slightly before card enters viewport
-      }
-    );
-
-    // Observe the card element
-    this._intersectionObserver.observe(this);
-  }
-
-  _setupPageVisibility() {
-    // Pause animation when browser tab is hidden
-    this._handleVisibilityChange = () => {
-      if (document.hidden) {
-        console.log('Tab hidden - pausing animation');
-        this._stopAnimation();
-      } else if (this._isVisible) {
-        console.log('Tab visible - resuming animation');
-        this._startAnimation();
-      }
-    };
-
-    document.addEventListener('visibilitychange', this._handleVisibilityChange);
-  }
-
   async _loadLeaflet() {
     if (window.L) return;
 
@@ -333,6 +291,8 @@ class WillyWeatherRadarCard extends LitElement {
       return;
     }
 
+    console.log('Starting animation');
+
     // Start new animation
     this._animationInterval = setInterval(() => {
       if (this._timestamps.length > 0 && this._isVisible) {
@@ -346,7 +306,53 @@ class WillyWeatherRadarCard extends LitElement {
     if (this._animationInterval) {
       clearInterval(this._animationInterval);
       this._animationInterval = null;
+      console.log('Animation stopped');
     }
+  }
+
+  _setupVisibilityObserver() {
+    // Use Intersection Observer to detect when card is visible
+    this._intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            // Card is visible - resume animation
+            console.log('Card visible - resuming animation');
+            this._isVisible = true;
+            if (this._timestamps.length > 0 && !this._animationInterval) {
+              this._startAnimation();
+            }
+          } else {
+            // Card is hidden - pause animation
+            console.log('Card hidden - pausing animation');
+            this._isVisible = false;
+            this._stopAnimation();
+          }
+        });
+      },
+      {
+        threshold: 0.1,
+        rootMargin: '50px'
+      }
+    );
+
+    // Observe the card element
+    this._intersectionObserver.observe(this);
+  }
+
+  _setupPageVisibility() {
+    // Pause animation when browser tab is hidden
+    this._handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('Tab hidden - pausing animation');
+        this._stopAnimation();
+      } else if (this._isVisible) {
+        console.log('Tab visible - resuming animation');
+        this._startAnimation();
+      }
+    };
+
+    document.addEventListener('visibilitychange', this._handleVisibilityChange);
   }
 
   _getMapType(zoom) {
@@ -523,7 +529,7 @@ class WillyWeatherRadarCard extends LitElement {
       hour: '2-digit', 
       minute: '2-digit',
       hour12: true,
-      timeZone: 'Australia/Melbourne'  // Or use Intl.DateTimeFormat().resolvedOptions().timeZone
+      timeZone: 'Australia/Melbourne'
     });
   }
 
