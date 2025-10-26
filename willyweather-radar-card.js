@@ -18,11 +18,11 @@ class WillyWeatherRadarCard extends LitElement {
   static getLayoutOptions() {
     return {
       grid_columns: 4,
-      grid_rows: 5,
+      grid_rows: 6,
       grid_min_columns: 2,
       grid_max_columns: 4,
       grid_min_rows: 4,
-      grid_max_rows: 8
+      grid_max_rows: 10
     };
   }
 
