@@ -261,7 +261,8 @@ class WillyWeatherRadarCard extends LitElement {
   }
 
   _getAddonUrl(path) {
-    return `/api/hassio_ingress/willyweather_radar${path}`;
+    // Use direct port access, not ingress (ingress only works in HA UI, not from cards)
+    return `http://homeassistant.local:8099${path}`;
   }
 
   _formatTimestamp(timestamp) {
