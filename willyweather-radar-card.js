@@ -258,12 +258,15 @@ class WillyWeatherRadarCard extends LitElement {
       this._loadTimestamps();
     });
     
-    // Reload when panning more than 50km
+    // In _initMap(), update the moveend handler:
     this._map.on('moveend', () => {
       const currentCenter = this._map.getCenter();
-      if (this._lastCenter) {
-        const distance = currentCenter.distanceTo(this._lastCenter);
+      const lockedCenter = this._lockedCenter || this._lastCenter;
+      
+      if (lockedCenter) {
+        const distance = currentCenter.distanceTo(lockedCenter);
         if (distance > 50000) {
+          console.log('Map moved significantly, reloading timestamps');
           this._loadTimestamps();
         }
       }
@@ -381,50 +384,51 @@ class WillyWeatherRadarCard extends LitElement {
     }
   }
 
-  async _loadTimestamps() {
-    if (!this._map) return;
-  
-    try {
-      // STOP animation while loading new data
-      this._stopAnimation();
-      
-      this._loading = true;
-  
-      const center = this._map.getCenter();
-      const zoom = this._map.getZoom();
-  
-      console.log(`Loading timestamps: zoom=${zoom}`);
-  
-      // Let SERVER determine map type - don't send type parameter
-      const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}`);
-      const response = await fetch(url);
-      
-      if (!response.ok) throw new Error('Failed to load timestamps');
-  
-      const allTimestamps = await response.json();
-      this._timestamps = allTimestamps.slice(-this.config.frames);
-      this._currentFrame = 0;
-      
-      // Clear overlay before loading new one
-      this._clearAllOverlays();
-      
-      // Load the first frame
-      await this._updateRadar();
-      
-      // Restart animation
-      this._startAnimation();
-      
-    } catch (error) {
-      console.error('Error loading timestamps:', error);
-      this._timestamps = [];
-    } finally {
-      this._loading = false;
-    }
+async _loadTimestamps() {
+  if (!this._map) return;
+
+  try {
+    // STOP animation while loading new data
+    this._stopAnimation();
+    
+    this._loading = true;
+
+    // Lock the center and zoom for this animation cycle
+    this._lockedCenter = this._map.getCenter();
+    this._lockedZoom = this._map.getZoom();
+
+    console.log(`Loading timestamps: center=(${this._lockedCenter.lat.toFixed(4)}, ${this._lockedCenter.lng.toFixed(4)}), zoom=${this._lockedZoom}`);
+
+    // Let SERVER determine map type - don't send type parameter
+    const url = this._getAddonUrl(`/api/timestamps?lat=${this._lockedCenter.lat}&lng=${this._lockedCenter.lng}&zoom=${this._lockedZoom}`);
+    const response = await fetch(url);
+    
+    if (!response.ok) throw new Error('Failed to load timestamps');
+
+    const allTimestamps = await response.json();
+    this._timestamps = allTimestamps.slice(-this.config.frames);
+    this._currentFrame = 0;
+    
+    // Clear overlay before loading new one
+    this._clearAllOverlays();
+    
+    // Load the first frame
+    await this._updateRadar();
+    
+    // Restart animation
+    this._startAnimation();
+    
+  } catch (error) {
+    console.error('Error loading timestamps:', error);
+    this._timestamps = [];
+  } finally {
+    this._loading = false;
   }
-  
+}
+
   async _updateRadar() {
     if (!this._map) return;
-
+  
     try {
       // Clear old overlay FIRST
       if (this._overlay) {
@@ -435,21 +439,22 @@ class WillyWeatherRadarCard extends LitElement {
         URL.revokeObjectURL(this._lastImageUrl);
         this._lastImageUrl = null;
       }
-
-      const center = this._map.getCenter();
-      const zoom = this._map.getZoom();
+  
+      // Use LOCKED center and zoom from when timestamps were loaded
+      const center = this._lockedCenter || this._map.getCenter();
+      const zoom = this._lockedZoom || this._map.getZoom();
       const timestamp = this._timestamps[this._currentFrame];
       
       if (!timestamp) {
         console.log('No timestamp available for current frame');
         return;
       }
-
+  
       const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
       const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
-
-      console.log(`Fetching radar: zoom=${zoom}, frame=${this._currentFrame}, timestamp=${timestamp}`);
-
+  
+      console.log(`Fetching radar: center=(${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}), zoom=${zoom}, frame=${this._currentFrame}, timestamp=${timestamp}`);
+  
       // Fetch radar image
       const response = await fetch(url);
       
@@ -457,50 +462,124 @@ class WillyWeatherRadarCard extends LitElement {
         console.error('Failed to fetch radar:', response.status);
         return;
       }
-
+  
       // Read bounds from response headers
       const south = parseFloat(response.headers.get('X-Radar-Bounds-South'));
       const west = parseFloat(response.headers.get('X-Radar-Bounds-West'));
       const north = parseFloat(response.headers.get('X-Radar-Bounds-North'));
       const east = parseFloat(response.headers.get('X-Radar-Bounds-East'));
-
+  
       if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
         console.error('Invalid bounds from addon');
         return;
       }
-
-      console.log(`Bounds: S=${south.toFixed(2)}, W=${west.toFixed(2)}, N=${north.toFixed(2)}, E=${east.toFixed(2)}`);
-
+  
       // Create Leaflet bounds from actual radar coverage area
       const bounds = L.latLngBounds(
         L.latLng(south, west),
         L.latLng(north, east)
       );
-
+  
       // Create image URL from blob
       const blob = await response.blob();
       const imageUrl = URL.createObjectURL(blob);
-
+  
       // Small delay to ensure old overlay is fully removed
       await new Promise(resolve => setTimeout(resolve, 10));
-
+  
       // Add NEW overlay at the correct geographic position
       this._overlay = L.imageOverlay(imageUrl, bounds, {
         opacity: 0.7,
         interactive: false
       }).addTo(this._map);
-
-      // Store for cleanup
+  
+      // Store for cleanup (but don't update _lastCenter - use locked values)
       this._lastImageUrl = imageUrl;
-      this._lastCenter = center;
-
+  
       console.log('Radar overlay added successfully');
-
+  
     } catch (error) {
       console.error('Error updating radar:', error);
     }
   }
-
+  
+  async _updateRadar() {
+    if (!this._map) return;
+  
+    try {
+      // Clear old overlay FIRST
+      if (this._overlay) {
+        this._map.removeLayer(this._overlay);
+        this._overlay = null;
+      }
+      if (this._lastImageUrl) {
+        URL.revokeObjectURL(this._lastImageUrl);
+        this._lastImageUrl = null;
+      }
+  
+      // Use LOCKED center and zoom from when timestamps were loaded
+      const center = this._lockedCenter || this._map.getCenter();
+      const zoom = this._lockedZoom || this._map.getZoom();
+      const timestamp = this._timestamps[this._currentFrame];
+      
+      if (!timestamp) {
+        console.log('No timestamp available for current frame');
+        return;
+      }
+  
+      const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
+      const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
+  
+      console.log(`Fetching radar: center=(${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}), zoom=${zoom}, frame=${this._currentFrame}, timestamp=${timestamp}`);
+  
+      // Fetch radar image
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        console.error('Failed to fetch radar:', response.status);
+        return;
+      }
+  
+      // Read bounds from response headers
+      const south = parseFloat(response.headers.get('X-Radar-Bounds-South'));
+      const west = parseFloat(response.headers.get('X-Radar-Bounds-West'));
+      const north = parseFloat(response.headers.get('X-Radar-Bounds-North'));
+      const east = parseFloat(response.headers.get('X-Radar-Bounds-East'));
+  
+      if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
+        console.error('Invalid bounds from addon');
+        return;
+      }
+  
+      // Create Leaflet bounds from actual radar coverage area
+      const bounds = L.latLngBounds(
+        L.latLng(south, west),
+        L.latLng(north, east)
+      );
+  
+      // Create image URL from blob
+      const blob = await response.blob();
+      const imageUrl = URL.createObjectURL(blob);
+  
+      // Small delay to ensure old overlay is fully removed
+      await new Promise(resolve => setTimeout(resolve, 10));
+  
+      // Add NEW overlay at the correct geographic position
+      this._overlay = L.imageOverlay(imageUrl, bounds, {
+        opacity: 0.7,
+        interactive: false
+      }).addTo(this._map);
+  
+      // Store for cleanup (but don't update _lastCenter - use locked values)
+      this._lastImageUrl = imageUrl;
+  
+      console.log('Radar overlay added successfully');
+  
+    } catch (error) {
+      console.error('Error updating radar:', error);
+    }
+  }
+  
   _getAddonUrl(path) {
     // Use direct port access
     return `http://homeassistant.local:8099${path}`;
