@@ -40,18 +40,19 @@ class WillyWeatherRadarCard extends LitElement {
     if (!config) {
       throw new Error("Invalid configuration");
     }
-
+  
     this.config = {
       zoom: config.zoom || 10,
+      frames: config.frames || 7,  // NEW: configurable frame count
       ...config
     };
-
+  
     this._currentFrame = 0;
     this._timestamps = [];
     this._loading = false;
     this._currentMapType = null;
   }
-
+  
   static get styles() {
     return css`
       :host {
@@ -242,19 +243,19 @@ class WillyWeatherRadarCard extends LitElement {
 
   async _loadTimestamps() {
     if (!this._map) return;
-
+  
     try {
       // STOP animation while loading new data
       this._stopAnimation();
       
       this._loading = true;
-
+  
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
       const mapType = this._getMapType(zoom);
-
+  
       console.log(`Loading timestamps: zoom=${zoom}, mapType=${mapType}`);
-
+  
       // If map type changed, clear ALL overlays and reset frame
       if (this._currentMapType && this._currentMapType !== mapType) {
         console.log(`Map type changed from ${this._currentMapType} to ${mapType}, clearing overlays`);
@@ -263,14 +264,14 @@ class WillyWeatherRadarCard extends LitElement {
         this._timestamps = [];
       }
       this._currentMapType = mapType;
-
+  
       const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&type=${mapType}`);
       const response = await fetch(url);
       
       if (!response.ok) throw new Error('Failed to load timestamps');
-
+  
       const allTimestamps = await response.json();
-      this._timestamps = allTimestamps.slice(-5);
+      this._timestamps = allTimestamps.slice(-this.config.frames);  // Use config value
       this._currentFrame = 0;
       
       // Clear overlay before loading new one
@@ -290,6 +291,20 @@ class WillyWeatherRadarCard extends LitElement {
     }
   }
 
+_startAnimation() {
+  if (this._animationInterval) {
+    clearInterval(this._animationInterval);
+    this._animationInterval = null;
+  }
+
+  this._animationInterval = setInterval(() => {
+    if (this._timestamps.length > 0) {
+      this._currentFrame = (this._currentFrame + 1) % Math.min(this.config.frames, this._timestamps.length);
+      this._updateRadar();
+    }
+  }, 800);
+}
+  
   async _updateRadar() {
     if (!this._map) return;
 
@@ -443,7 +458,7 @@ class WillyWeatherRadarCardEditor extends LitElement {
     if (!this.config) {
       return html``;
     }
-
+  
     return html`
       <div class="option">
         <label>Initial Zoom Level (1-15)</label>
@@ -456,9 +471,20 @@ class WillyWeatherRadarCardEditor extends LitElement {
           .configValue=${"zoom"}
         ></ha-textfield>
       </div>
+      <div class="option">
+        <label>Animation Frames (3-10)</label>
+        <ha-textfield
+          type="number"
+          .value=${this.config.frames || 7}
+          .min=${3}
+          .max=${10}
+          @input=${this._valueChanged}
+          .configValue=${"frames"}
+        ></ha-textfield>
+      </div>
     `;
   }
-
+  
   _valueChanged(ev) {
     if (!this.config || !this.hass) {
       return;
