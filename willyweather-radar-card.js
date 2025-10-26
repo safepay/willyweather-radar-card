@@ -152,29 +152,37 @@ class WillyWeatherRadarCard extends LitElement {
     const homeZone = this.hass?.states['zone.home'];
     const lat = homeZone?.attributes?.latitude || -33.8688;
     const lng = homeZone?.attributes?.longitude || 151.2093;
-
+  
     this._map = L.map(mapElement, {
       zoomControl: true,
       attributionControl: true
     }).setView([lat, lng], this.config.zoom);
-
+  
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap',
       maxZoom: 19
     }).addTo(this._map);
-
+  
     setTimeout(() => this._map?.invalidateSize(), 200);
     
-    // Update radar when user pans/zooms
-    this._map.on('moveend', () => {
-      this._updateRadarPosition();
-    });
-    
+    // Only reload timestamps on zoom change
     this._map.on('zoomend', () => {
       this._loadTimestamps();
     });
+    
+    // Optionally: reload on significant pan
+    this._map.on('moveend', () => {
+      const currentCenter = this._map.getCenter();
+      if (this._lastCenter) {
+        const distance = currentCenter.distanceTo(this._lastCenter);
+        // Reload if moved more than 50km
+        if (distance > 50000) {
+          this._loadTimestamps();
+        }
+      }
+    });
   }
-
+  
   async _startAutoUpdate() {
     await this._loadTimestamps();
     
@@ -235,30 +243,33 @@ class WillyWeatherRadarCard extends LitElement {
       const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
       const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
   
-      // Fetch to get bounds from headers
+      // Fetch the radar image to get the bounds from headers
       const response = await fetch(url);
       
       if (!response.ok) {
-        console.error('Failed to fetch radar:', response.status);
+        console.error('Failed to fetch radar image:', response.status);
         return;
       }
   
-      // Read actual bounds from addon
+      // Read bounds from response headers
       const south = parseFloat(response.headers.get('X-Radar-Bounds-South'));
       const west = parseFloat(response.headers.get('X-Radar-Bounds-West'));
       const north = parseFloat(response.headers.get('X-Radar-Bounds-North'));
       const east = parseFloat(response.headers.get('X-Radar-Bounds-East'));
   
+      // Validate bounds
       if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
-        console.error('Invalid bounds from addon');
+        console.error('Invalid bounds received from addon');
         return;
       }
   
+      // Create proper Leaflet bounds from addon-provided coordinates
       const bounds = L.latLngBounds(
         L.latLng(south, west),
         L.latLng(north, east)
       );
   
+      // Convert response to blob for image URL
       const blob = await response.blob();
       const imageUrl = URL.createObjectURL(blob);
   
@@ -267,23 +278,17 @@ class WillyWeatherRadarCard extends LitElement {
         interactive: false
       }).addTo(this._map);
   
-      if (this._lastImageUrl) {
-        URL.revokeObjectURL(this._lastImageUrl);
-      }
+      // Store for cleanup
       this._lastImageUrl = imageUrl;
+  
+      // Store center/zoom for reference
+      this._lastCenter = center;
+      this._lastZoom = zoom;
   
     } catch (error) {
       console.error('Error updating radar:', error);
     }
-  }
-  
-  _updateRadarPosition() {
-    // Update overlay bounds when map moves (without refetching)
-    if (this._overlay && this._map) {
-      const newBounds = this._map.getBounds();
-      this._overlay.setBounds(newBounds);
-    }
-  }
+  }  
 
   _getAddonUrl(path) {
     // Use direct port access, not ingress (ingress only works in HA UI, not from cards)
@@ -312,12 +317,15 @@ class WillyWeatherRadarCard extends LitElement {
     if (this._reloadInterval) {
       clearInterval(this._reloadInterval);
     }
+    if (this._lastImageUrl) {
+      URL.revokeObjectURL(this._lastImageUrl);
+    }
     if (this._map) {
       this._map.remove();
       this._map = null;
     }
   }
-
+  
   getCardSize() {
     return 5;
   }
