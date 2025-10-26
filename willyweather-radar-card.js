@@ -19,13 +19,8 @@ class WillyWeatherRadarCard extends LitElement {
   static getStubConfig() {
     return {
       zoom: 10,
-      addon_slug: "willyweather_radar",
-      height: 400
+      addon_slug: "willyweather_radar"
     };
-  }
-
-  static getConfigElement() {
-    return document.createElement("willyweather-radar-card-editor");
   }
 
   setConfig(config) {
@@ -36,7 +31,6 @@ class WillyWeatherRadarCard extends LitElement {
     this.config = {
       zoom: config.zoom || 10,
       addon_slug: config.addon_slug || "willyweather_radar",
-      height: config.height || 400,
       ...config
     };
 
@@ -54,19 +48,24 @@ class WillyWeatherRadarCard extends LitElement {
 
       ha-card {
         height: 100%;
-        overflow: hidden;
+        display: flex;
+        flex-direction: column;
       }
 
       .card-content {
+        flex: 1;
         padding: 0;
         position: relative;
-        height: var(--map-height, 400px);
         overflow: hidden;
+        min-height: 400px;
       }
 
       #map {
         width: 100%;
         height: 100%;
+        position: absolute;
+        top: 0;
+        left: 0;
       }
 
       .timestamp {
@@ -94,81 +93,14 @@ class WillyWeatherRadarCard extends LitElement {
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         z-index: 1001;
       }
-
-      /* Leaflet CSS inline for shadow DOM */
-      #map :global(.leaflet-pane),
-      #map :global(.leaflet-tile),
-      #map :global(.leaflet-marker-icon),
-      #map :global(.leaflet-marker-shadow),
-      #map :global(.leaflet-tile-container),
-      #map :global(.leaflet-zoom-box),
-      #map :global(.leaflet-image-layer),
-      #map :global(.leaflet-layer) {
-        position: absolute;
-        left: 0;
-        top: 0;
-      }
-
-      #map :global(.leaflet-container) {
-        overflow: hidden;
-        background: #ddd;
-      }
-
-      #map :global(.leaflet-tile),
-      #map :global(.leaflet-marker-icon),
-      #map :global(.leaflet-marker-shadow) {
-        user-select: none;
-      }
-
-      #map :global(.leaflet-tile-container) {
-        z-index: 2;
-      }
-
-      #map :global(.leaflet-control-zoom a) {
-        width: 26px;
-        height: 26px;
-        line-height: 26px;
-        display: block;
-        text-align: center;
-        text-decoration: none;
-        color: black;
-        background-color: #fff;
-      }
-
-      #map :global(.leaflet-control-zoom) {
-        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
-        border-radius: 4px;
-      }
-
-      #map :global(.leaflet-bar) {
-        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
-        border-radius: 4px;
-      }
-
-      #map :global(.leaflet-bar a) {
-        background-color: #fff;
-        border-bottom: 1px solid #ccc;
-        width: 26px;
-        height: 26px;
-        line-height: 26px;
-        display: block;
-        text-align: center;
-        text-decoration: none;
-        color: black;
-      }
-
-      #map :global(.leaflet-control-attribution) {
-        background: rgba(255, 255, 255, 0.7);
-        padding: 0 5px;
-        font-size: 11px;
-      }
     `;
   }
 
   render() {
     return html`
       <ha-card>
-        <div class="card-content" style="--map-height: ${this.config.height}px">
+        <div class="card-content">
+          <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
           <div id="map"></div>
           
           ${this._loading ? html`<div class="loading">Loading...</div>` : ''}
@@ -185,6 +117,8 @@ class WillyWeatherRadarCard extends LitElement {
 
   async firstUpdated() {
     await this._loadLeaflet();
+    // Wait for Leaflet CSS to load
+    await new Promise(resolve => setTimeout(resolve, 100));
     this._initMap();
     await this._startAutoUpdate();
   }
@@ -203,9 +137,10 @@ class WillyWeatherRadarCard extends LitElement {
 
   _initMap() {
     const mapElement = this.shadowRoot.getElementById('map');
+    if (!mapElement) return;
     
     // Get Home Assistant home zone coordinates
-    const homeZone = this.hass.states['zone.home'];
+    const homeZone = this.hass?.states['zone.home'];
     const lat = homeZone?.attributes?.latitude || -33.8688;
     const lng = homeZone?.attributes?.longitude || 151.2093;
 
@@ -218,6 +153,9 @@ class WillyWeatherRadarCard extends LitElement {
       attribution: '© OpenStreetMap',
       maxZoom: 19
     }).addTo(this._map);
+
+    // Force map to recalculate size
+    setTimeout(() => this._map?.invalidateSize(), 200);
 
     // Update radar when user pans/zooms
     this._map.on('moveend', () => this._loadTimestamps());
@@ -241,6 +179,8 @@ class WillyWeatherRadarCard extends LitElement {
   }
 
   async _loadTimestamps() {
+    if (!this._map) return;
+
     try {
       this._loading = true;
 
@@ -269,6 +209,8 @@ class WillyWeatherRadarCard extends LitElement {
   }
 
   async _updateRadar() {
+    if (!this._map) return;
+
     try {
       if (this._overlay) {
         this._map.removeLayer(this._overlay);
@@ -324,17 +266,17 @@ class WillyWeatherRadarCard extends LitElement {
   }
 
   getCardSize() {
-    return Math.ceil(this.config.height / 50);
+    return 4;
   }
 
   static getLayoutOptions() {
     return {
+      grid_columns: 4,
       grid_rows: 4,
-      grid_columns: 2,
-      grid_min_rows: 3,
-      grid_max_rows: 6,
       grid_min_columns: 2,
-      grid_max_columns: 4
+      grid_max_columns: 4,
+      grid_min_rows: 3,
+      grid_max_rows: 6
     };
   }
 }
