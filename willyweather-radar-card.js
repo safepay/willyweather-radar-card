@@ -388,9 +388,7 @@ async _loadTimestamps() {
   if (!this._map) return;
 
   try {
-    // STOP animation while loading new data
     this._stopAnimation();
-    
     this._loading = true;
 
     // Lock the center and zoom for this animation cycle
@@ -399,7 +397,6 @@ async _loadTimestamps() {
 
     console.log(`Loading timestamps: center=(${this._lockedCenter.lat.toFixed(4)}, ${this._lockedCenter.lng.toFixed(4)}), zoom=${this._lockedZoom}`);
 
-    // Let SERVER determine map type - don't send type parameter
     const url = this._getAddonUrl(`/api/timestamps?lat=${this._lockedCenter.lat}&lng=${this._lockedCenter.lng}&zoom=${this._lockedZoom}`);
     const response = await fetch(url);
     
