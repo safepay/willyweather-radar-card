@@ -220,38 +220,63 @@ class WillyWeatherRadarCard extends LitElement {
 
   async _updateRadar() {
     if (!this._map) return;
-
+  
     try {
       if (this._overlay) {
         this._map.removeLayer(this._overlay);
       }
-
+  
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
       const timestamp = this._timestamps[this._currentFrame];
       
       if (!timestamp) return;
-
+  
       const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
       const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
-
-      // Get current map bounds for overlay
-      const bounds = this._map.getBounds();
+  
+      // Fetch to get bounds from headers
+      const response = await fetch(url);
       
-      this._overlay = L.imageOverlay(url, bounds, {
+      if (!response.ok) {
+        console.error('Failed to fetch radar:', response.status);
+        return;
+      }
+  
+      // Read actual bounds from addon
+      const south = parseFloat(response.headers.get('X-Radar-Bounds-South'));
+      const west = parseFloat(response.headers.get('X-Radar-Bounds-West'));
+      const north = parseFloat(response.headers.get('X-Radar-Bounds-North'));
+      const east = parseFloat(response.headers.get('X-Radar-Bounds-East'));
+  
+      if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
+        console.error('Invalid bounds from addon');
+        return;
+      }
+  
+      const bounds = L.latLngBounds(
+        L.latLng(south, west),
+        L.latLng(north, east)
+      );
+  
+      const blob = await response.blob();
+      const imageUrl = URL.createObjectURL(blob);
+  
+      this._overlay = L.imageOverlay(imageUrl, bounds, {
         opacity: 0.7,
         interactive: false
       }).addTo(this._map);
-
-      // Store center/zoom for position updates
-      this._lastCenter = center;
-      this._lastZoom = zoom;
-
+  
+      if (this._lastImageUrl) {
+        URL.revokeObjectURL(this._lastImageUrl);
+      }
+      this._lastImageUrl = imageUrl;
+  
     } catch (error) {
       console.error('Error updating radar:', error);
     }
   }
-
+  
   _updateRadarPosition() {
     // Update overlay bounds when map moves (without refetching)
     if (this._overlay && this._map) {
