@@ -7,8 +7,7 @@ import { LitElement, html, css } from "https://unpkg.com/lit@3.1.0/index.js?modu
 class WillyWeatherRadarCard extends LitElement {
   static getStubConfig() {
     return {
-      zoom: 10,
-      addon_slug: "willyweather_radar"
+      zoom: 10
     };
   }
 
@@ -19,11 +18,11 @@ class WillyWeatherRadarCard extends LitElement {
   static getLayoutOptions() {
     return {
       grid_columns: 4,
-      grid_rows: 4,
+      grid_rows: 5,
       grid_min_columns: 2,
       grid_max_columns: 4,
-      grid_min_rows: 3,
-      grid_max_rows: 6
+      grid_min_rows: 4,
+      grid_max_rows: 8
     };
   }
 
@@ -44,7 +43,6 @@ class WillyWeatherRadarCard extends LitElement {
 
     this.config = {
       zoom: config.zoom || 10,
-      addon_slug: config.addon_slug || "willyweather_radar",
       ...config
     };
 
@@ -83,14 +81,14 @@ class WillyWeatherRadarCard extends LitElement {
 
       .timestamp {
         position: absolute;
-        top: 12px;
-        right: 12px;
+        bottom: 8px;
+        left: 8px;
         background: rgba(255, 255, 255, 0.95);
-        padding: 6px 12px;
+        padding: 4px 10px;
         border-radius: 4px;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 500;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
         z-index: 1000;
         pointer-events: none;
       }
@@ -166,7 +164,15 @@ class WillyWeatherRadarCard extends LitElement {
     }).addTo(this._map);
 
     setTimeout(() => this._map?.invalidateSize(), 200);
-    this._map.on('moveend', () => this._loadTimestamps());
+    
+    // Update radar when user pans/zooms
+    this._map.on('moveend', () => {
+      this._updateRadarPosition();
+    });
+    
+    this._map.on('zoomend', () => {
+      this._loadTimestamps();
+    });
   }
 
   async _startAutoUpdate() {
@@ -229,25 +235,42 @@ class WillyWeatherRadarCard extends LitElement {
       const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
       const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
 
+      // Get current map bounds for overlay
       const bounds = this._map.getBounds();
+      
       this._overlay = L.imageOverlay(url, bounds, {
         opacity: 0.7,
         interactive: false
       }).addTo(this._map);
+
+      // Store center/zoom for position updates
+      this._lastCenter = center;
+      this._lastZoom = zoom;
 
     } catch (error) {
       console.error('Error updating radar:', error);
     }
   }
 
+  _updateRadarPosition() {
+    // Update overlay bounds when map moves (without refetching)
+    if (this._overlay && this._map) {
+      const newBounds = this._map.getBounds();
+      this._overlay.setBounds(newBounds);
+    }
+  }
+
   _getAddonUrl(path) {
-    return `/api/hassio_ingress/${this.config.addon_slug}${path}`;
+    return `/api/hassio_ingress/willyweather_radar${path}`;
   }
 
   _formatTimestamp(timestamp) {
     if (!timestamp) return '';
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-AU', { 
+    return date.toLocaleString('en-AU', { 
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
       hour: '2-digit', 
       minute: '2-digit',
       hour12: true 
@@ -270,7 +293,7 @@ class WillyWeatherRadarCard extends LitElement {
   }
 
   getCardSize() {
-    return 4;
+    return 5;
   }
 }
 
@@ -290,11 +313,6 @@ class WillyWeatherRadarCardEditor extends LitElement {
     return css`
       .option {
         padding: 16px 0;
-        border-bottom: 1px solid var(--divider-color);
-      }
-
-      .option:last-child {
-        border-bottom: none;
       }
 
       .option label {
@@ -316,7 +334,7 @@ class WillyWeatherRadarCardEditor extends LitElement {
 
     return html`
       <div class="option">
-        <label>Zoom Level (1-15)</label>
+        <label>Initial Zoom Level (1-15)</label>
         <ha-textfield
           type="number"
           .value=${this.config.zoom || 10}
@@ -324,15 +342,6 @@ class WillyWeatherRadarCardEditor extends LitElement {
           .max=${15}
           @input=${this._valueChanged}
           .configValue=${"zoom"}
-        ></ha-textfield>
-      </div>
-
-      <div class="option">
-        <label>Add-on Slug</label>
-        <ha-textfield
-          .value=${this.config.addon_slug || "willyweather_radar"}
-          @input=${this._valueChanged}
-          .configValue=${"addon_slug"}
         ></ha-textfield>
       </div>
     `;
@@ -345,11 +354,7 @@ class WillyWeatherRadarCardEditor extends LitElement {
 
     const target = ev.target;
     const configValue = target.configValue;
-    let value = target.value;
-
-    if (configValue === "zoom") {
-      value = parseInt(value);
-    }
+    const value = parseInt(target.value);
 
     if (this.config[configValue] === value) {
       return;
