@@ -3,18 +3,16 @@
  * Displays Australian weather radar with auto-animation
  */
 
-const LitElement = Object.getPrototypeOf(customElements.get("ha-panel-lovelace"));
-const html = LitElement.prototype.html;
-const css = LitElement.prototype.css;
+import { LitElement, html, css } from "https://unpkg.com/lit@3.1.0/index.js?module";
 
 class WillyWeatherRadarCard extends LitElement {
   static get properties() {
     return {
-      hass: {},
-      config: {},
-      _currentFrame: { type: Number },
-      _timestamps: { type: Array },
-      _loading: { type: Boolean }
+      hass: { type: Object },
+      config: { type: Object },
+      _currentFrame: { type: Number, state: true },
+      _timestamps: { type: Array, state: true },
+      _loading: { type: Boolean, state: true }
     };
   }
 
@@ -26,7 +24,15 @@ class WillyWeatherRadarCard extends LitElement {
     };
   }
 
+  static getConfigElement() {
+    return document.createElement("willyweather-radar-card-editor");
+  }
+
   setConfig(config) {
+    if (!config) {
+      throw new Error("Invalid configuration");
+    }
+
     this.config = {
       zoom: config.zoom || 10,
       addon_slug: config.addon_slug || "willyweather_radar",
@@ -43,17 +49,24 @@ class WillyWeatherRadarCard extends LitElement {
     return css`
       :host {
         display: block;
+        height: 100%;
+      }
+
+      ha-card {
+        height: 100%;
+        overflow: hidden;
       }
 
       .card-content {
         padding: 0;
         position: relative;
+        height: var(--map-height, 400px);
         overflow: hidden;
       }
 
       #map {
         width: 100%;
-        height: var(--map-height, 400px);
+        height: 100%;
       }
 
       .timestamp {
@@ -67,6 +80,7 @@ class WillyWeatherRadarCard extends LitElement {
         font-weight: 500;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
         z-index: 1000;
+        pointer-events: none;
       }
 
       .loading {
@@ -79,6 +93,74 @@ class WillyWeatherRadarCard extends LitElement {
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         z-index: 1001;
+      }
+
+      /* Leaflet CSS inline for shadow DOM */
+      #map :global(.leaflet-pane),
+      #map :global(.leaflet-tile),
+      #map :global(.leaflet-marker-icon),
+      #map :global(.leaflet-marker-shadow),
+      #map :global(.leaflet-tile-container),
+      #map :global(.leaflet-zoom-box),
+      #map :global(.leaflet-image-layer),
+      #map :global(.leaflet-layer) {
+        position: absolute;
+        left: 0;
+        top: 0;
+      }
+
+      #map :global(.leaflet-container) {
+        overflow: hidden;
+        background: #ddd;
+      }
+
+      #map :global(.leaflet-tile),
+      #map :global(.leaflet-marker-icon),
+      #map :global(.leaflet-marker-shadow) {
+        user-select: none;
+      }
+
+      #map :global(.leaflet-tile-container) {
+        z-index: 2;
+      }
+
+      #map :global(.leaflet-control-zoom a) {
+        width: 26px;
+        height: 26px;
+        line-height: 26px;
+        display: block;
+        text-align: center;
+        text-decoration: none;
+        color: black;
+        background-color: #fff;
+      }
+
+      #map :global(.leaflet-control-zoom) {
+        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+        border-radius: 4px;
+      }
+
+      #map :global(.leaflet-bar) {
+        box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+        border-radius: 4px;
+      }
+
+      #map :global(.leaflet-bar a) {
+        background-color: #fff;
+        border-bottom: 1px solid #ccc;
+        width: 26px;
+        height: 26px;
+        line-height: 26px;
+        display: block;
+        text-align: center;
+        text-decoration: none;
+        color: black;
+      }
+
+      #map :global(.leaflet-control-attribution) {
+        background: rgba(255, 255, 255, 0.7);
+        padding: 0 5px;
+        font-size: 11px;
       }
     `;
   }
@@ -109,11 +191,6 @@ class WillyWeatherRadarCard extends LitElement {
 
   async _loadLeaflet() {
     if (window.L) return;
-
-    const cssLink = document.createElement('link');
-    cssLink.rel = 'stylesheet';
-    cssLink.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(cssLink);
 
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
@@ -166,7 +243,6 @@ class WillyWeatherRadarCard extends LitElement {
   async _loadTimestamps() {
     try {
       this._loading = true;
-      this.requestUpdate();
 
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
@@ -179,7 +255,6 @@ class WillyWeatherRadarCard extends LitElement {
       if (!response.ok) throw new Error('Failed to load timestamps');
 
       const allTimestamps = await response.json();
-      // Keep only the latest 5 frames
       this._timestamps = allTimestamps.slice(-5);
       this._currentFrame = 0;
       
@@ -190,7 +265,6 @@ class WillyWeatherRadarCard extends LitElement {
       this._timestamps = [];
     } finally {
       this._loading = false;
-      this.requestUpdate();
     }
   }
 
@@ -214,8 +288,6 @@ class WillyWeatherRadarCard extends LitElement {
         opacity: 0.7,
         interactive: false
       }).addTo(this._map);
-
-      this.requestUpdate();
 
     } catch (error) {
       console.error('Error updating radar:', error);
@@ -254,6 +326,17 @@ class WillyWeatherRadarCard extends LitElement {
   getCardSize() {
     return Math.ceil(this.config.height / 50);
   }
+
+  static getLayoutOptions() {
+    return {
+      grid_rows: 4,
+      grid_columns: 2,
+      grid_min_rows: 3,
+      grid_max_rows: 6,
+      grid_min_columns: 2,
+      grid_max_columns: 4
+    };
+  }
 }
 
 customElements.define("willyweather-radar-card", WillyWeatherRadarCard);
@@ -262,8 +345,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "willyweather-radar-card",
   name: "WillyWeather Radar Card",
-  description: "Australian weather radar with auto-animation",
-  preview: true
+  description: "Australian weather radar with auto-animation"
 });
 
 console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.0 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
