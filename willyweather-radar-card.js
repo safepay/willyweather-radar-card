@@ -106,6 +106,33 @@ class WillyWeatherRadarCard extends LitElement {
         pointer-events: none;
       }
 
+      .progress-bar {
+        position: absolute;
+        bottom: 8px;
+        right: 8px;
+        background: rgba(255, 255, 255, 0.95);
+        padding: 8px 12px;
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+        z-index: 1000;
+        pointer-events: none;
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+
+      .progress-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.2);
+        transition: background 0.3s ease;
+      }
+
+      .progress-dot.active {
+        background: #1976D2;
+      }
+
       .loading {
         position: absolute;
         top: 50%;
@@ -116,6 +143,12 @@ class WillyWeatherRadarCard extends LitElement {
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         z-index: 1001;
+      }
+
+      .home-marker {
+        color: #1976D2;
+        font-size: 24px;
+        text-shadow: 0 0 3px white, 0 0 6px white;
       }
     `;
   }
@@ -132,6 +165,11 @@ class WillyWeatherRadarCard extends LitElement {
           ${this._timestamps.length > 0 ? html`
             <div class="timestamp">
               ${this._formatTimestamp(this._timestamps[this._currentFrame])}
+            </div>
+            <div class="progress-bar">
+              ${this._timestamps.map((_, index) => html`
+                <div class="progress-dot ${index === this._currentFrame ? 'active' : ''}"></div>
+              `)}
             </div>
           ` : ''}
         </div>
@@ -190,6 +228,20 @@ class WillyWeatherRadarCard extends LitElement {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap',
       maxZoom: 19
+    }).addTo(this._map);
+
+    // Add home marker
+    const homeIcon = L.divIcon({
+      html: '<div class="home-marker">🏠</div>',
+      className: 'home-marker-container',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+
+    this._homeMarker = L.marker([lat, lng], { 
+      icon: homeIcon,
+      interactive: false,
+      zIndexOffset: 1000
     }).addTo(this._map);
 
     setTimeout(() => this._map?.invalidateSize(), 200);
@@ -292,7 +344,7 @@ class WillyWeatherRadarCard extends LitElement {
       }
       this._currentMapType = mapType;
 
-      const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&type=${mapType}`);
+      const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}&type=${mapType}`);
       const response = await fetch(url);
       
       if (!response.ok) throw new Error('Failed to load timestamps');
@@ -404,14 +456,19 @@ class WillyWeatherRadarCard extends LitElement {
 
   _formatTimestamp(timestamp) {
     if (!timestamp) return '';
-    const date = new Date(timestamp);
+    
+    // Parse UTC timestamp from server
+    const date = new Date(timestamp + ' UTC');
+    
+    // Convert to local time and format
     return date.toLocaleString('en-AU', { 
       weekday: 'short',
       month: 'short',
       day: 'numeric',
       hour: '2-digit', 
       minute: '2-digit',
-      hour12: true 
+      hour12: true,
+      timeZone: 'Australia/Melbourne'  // Or use Intl.DateTimeFormat().resolvedOptions().timeZone
     });
   }
 
@@ -535,4 +592,4 @@ window.customCards.push({
   description: "Australian weather radar with auto-animation"
 });
 
-console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.4 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
+console.info("%c WILLYWEATHER-RADAR-CARD %c 1.1.0 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
