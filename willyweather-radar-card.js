@@ -49,6 +49,7 @@ class WillyWeatherRadarCard extends LitElement {
     this._currentFrame = 0;
     this._timestamps = [];
     this._loading = false;
+    this._currentMapType = null;
   }
 
   static get styles() {
@@ -195,32 +196,56 @@ class WillyWeatherRadarCard extends LitElement {
     this._reloadInterval = setInterval(() => this._loadTimestamps(), 300000);
   }
 
+  _getMapType(zoom) {
+    // MUST MATCH SERVER LOGIC EXACTLY
+    const zoomRadius = 5000 / Math.pow(2, zoom - 5);
+    return zoomRadius > 160 ? 'radar' : 'regional-radar';
+  }
+
+  _clearAllOverlays() {
+    // Remove ALL image overlays from the map
+    if (this._map) {
+      this._map.eachLayer((layer) => {
+        if (layer instanceof L.ImageOverlay) {
+          this._map.removeLayer(layer);
+        }
+      });
+    }
+    
+    // Clear stored references
+    this._overlay = null;
+    
+    // Clean up blob URLs
+    if (this._lastImageUrl) {
+      URL.revokeObjectURL(this._lastImageUrl);
+      this._lastImageUrl = null;
+    }
+  }
+
   async _loadTimestamps() {
     if (!this._map) return;
-  
+
     try {
       this._loading = true;
-  
+
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
-      const zoomRadius = 5000 / Math.pow(2, zoom - 5);
-      const mapType = zoomRadius > 160 ? 'radar' : 'regional-radar';
-  
-      // CRITICAL: Remove existing overlay when switching map types
-      if (this._overlay) {
-        this._map.removeLayer(this._overlay);
-        this._overlay = null;
+      const mapType = this._getMapType(zoom);
+
+      console.log(`Loading timestamps: zoom=${zoom}, mapType=${mapType}`);
+
+      // If map type changed, clear ALL overlays
+      if (this._currentMapType && this._currentMapType !== mapType) {
+        console.log(`Map type changed from ${this._currentMapType} to ${mapType}, clearing overlays`);
+        this._clearAllOverlays();
       }
-      if (this._lastImageUrl) {
-        URL.revokeObjectURL(this._lastImageUrl);
-        this._lastImageUrl = null;
-      }
-  
+      this._currentMapType = mapType;
+
       const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&type=${mapType}`);
       const response = await fetch(url);
       
       if (!response.ok) throw new Error('Failed to load timestamps');
-  
+
       const allTimestamps = await response.json();
       this._timestamps = allTimestamps.slice(-5);
       this._currentFrame = 0;
@@ -234,12 +259,12 @@ class WillyWeatherRadarCard extends LitElement {
       this._loading = false;
     }
   }
-  
+
   async _updateRadar() {
     if (!this._map) return;
-  
+
     try {
-      // Always remove old overlay first
+      // Clear old overlay
       if (this._overlay) {
         this._map.removeLayer(this._overlay);
         this._overlay = null;
@@ -248,16 +273,18 @@ class WillyWeatherRadarCard extends LitElement {
         URL.revokeObjectURL(this._lastImageUrl);
         this._lastImageUrl = null;
       }
-  
+
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
       const timestamp = this._timestamps[this._currentFrame];
       
       if (!timestamp) return;
-  
+
       const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
       const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
-  
+
+      console.log(`Fetching radar: zoom=${zoom}, timestamp=${timestamp}`);
+
       // Fetch radar image
       const response = await fetch(url);
       
@@ -265,45 +292,47 @@ class WillyWeatherRadarCard extends LitElement {
         console.error('Failed to fetch radar:', response.status);
         return;
       }
-  
-      // Read bounds from response headers (addon provides actual geographic bounds)
+
+      // Read bounds from response headers
       const south = parseFloat(response.headers.get('X-Radar-Bounds-South'));
       const west = parseFloat(response.headers.get('X-Radar-Bounds-West'));
       const north = parseFloat(response.headers.get('X-Radar-Bounds-North'));
       const east = parseFloat(response.headers.get('X-Radar-Bounds-East'));
-  
+
       if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
         console.error('Invalid bounds from addon');
         return;
       }
-  
+
+      console.log(`Bounds: S=${south.toFixed(2)}, W=${west.toFixed(2)}, N=${north.toFixed(2)}, E=${east.toFixed(2)}`);
+
       // Create Leaflet bounds from actual radar coverage area
       const bounds = L.latLngBounds(
         L.latLng(south, west),
         L.latLng(north, east)
       );
-  
+
       // Create image URL from blob
       const blob = await response.blob();
       const imageUrl = URL.createObjectURL(blob);
-  
+
       // Add NEW overlay at the correct geographic position
       this._overlay = L.imageOverlay(imageUrl, bounds, {
         opacity: 0.7,
         interactive: false
       }).addTo(this._map);
-  
+
       // Store for cleanup
       this._lastImageUrl = imageUrl;
-  
-      // Store current position for pan detection
       this._lastCenter = center;
-  
+
+      console.log('Radar overlay added successfully');
+
     } catch (error) {
       console.error('Error updating radar:', error);
     }
   }
-  
+
   _getAddonUrl(path) {
     // Use direct port access
     return `http://homeassistant.local:8099${path}`;
@@ -331,9 +360,7 @@ class WillyWeatherRadarCard extends LitElement {
     if (this._reloadInterval) {
       clearInterval(this._reloadInterval);
     }
-    if (this._lastImageUrl) {
-      URL.revokeObjectURL(this._lastImageUrl);
-    }
+    this._clearAllOverlays();
     if (this._map) {
       this._map.remove();
       this._map = null;
@@ -432,4 +459,4 @@ window.customCards.push({
   description: "Australian weather radar with auto-animation"
 });
 
-console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.1 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
+console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.2 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
