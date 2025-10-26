@@ -152,37 +152,36 @@ class WillyWeatherRadarCard extends LitElement {
     const homeZone = this.hass?.states['zone.home'];
     const lat = homeZone?.attributes?.latitude || -33.8688;
     const lng = homeZone?.attributes?.longitude || 151.2093;
-  
+
     this._map = L.map(mapElement, {
       zoomControl: true,
       attributionControl: true
     }).setView([lat, lng], this.config.zoom);
-  
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap',
       maxZoom: 19
     }).addTo(this._map);
-  
+
     setTimeout(() => this._map?.invalidateSize(), 200);
     
-    // Only reload timestamps on zoom change
+    // Reload timestamps when zoom changes
     this._map.on('zoomend', () => {
       this._loadTimestamps();
     });
     
-    // Optionally: reload on significant pan
+    // Reload when panning more than 50km
     this._map.on('moveend', () => {
       const currentCenter = this._map.getCenter();
       if (this._lastCenter) {
         const distance = currentCenter.distanceTo(this._lastCenter);
-        // Reload if moved more than 50km
         if (distance > 50000) {
           this._loadTimestamps();
         }
       }
     });
   }
-  
+
   async _startAutoUpdate() {
     await this._loadTimestamps();
     
@@ -205,7 +204,7 @@ class WillyWeatherRadarCard extends LitElement {
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
       const zoomRadius = 5000 / Math.pow(2, zoom - 5);
-      const mapType = zoomRadius > 1500 ? 'radar' : 'regional-radar';
+      const mapType = zoomRadius > 160 ? 'radar' : 'regional-radar';
 
       const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&type=${mapType}`);
       const response = await fetch(url);
@@ -228,70 +227,73 @@ class WillyWeatherRadarCard extends LitElement {
 
   async _updateRadar() {
     if (!this._map) return;
-  
+
     try {
+      // Remove old overlay
       if (this._overlay) {
         this._map.removeLayer(this._overlay);
       }
-  
+
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
       const timestamp = this._timestamps[this._currentFrame];
       
       if (!timestamp) return;
-  
+
       const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
       const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
-  
-      // Fetch the radar image to get the bounds from headers
+
+      // Fetch radar image
       const response = await fetch(url);
       
       if (!response.ok) {
-        console.error('Failed to fetch radar image:', response.status);
+        console.error('Failed to fetch radar:', response.status);
         return;
       }
-  
-      // Read bounds from response headers
+
+      // Read bounds from response headers (addon provides actual geographic bounds)
       const south = parseFloat(response.headers.get('X-Radar-Bounds-South'));
       const west = parseFloat(response.headers.get('X-Radar-Bounds-West'));
       const north = parseFloat(response.headers.get('X-Radar-Bounds-North'));
       const east = parseFloat(response.headers.get('X-Radar-Bounds-East'));
-  
-      // Validate bounds
+
       if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
-        console.error('Invalid bounds received from addon');
+        console.error('Invalid bounds from addon');
         return;
       }
-  
-      // Create proper Leaflet bounds from addon-provided coordinates
+
+      // Create Leaflet bounds from actual radar coverage area
       const bounds = L.latLngBounds(
         L.latLng(south, west),
         L.latLng(north, east)
       );
-  
-      // Convert response to blob for image URL
+
+      // Create image URL from blob
       const blob = await response.blob();
       const imageUrl = URL.createObjectURL(blob);
-  
+
+      // Add overlay at the correct geographic position
       this._overlay = L.imageOverlay(imageUrl, bounds, {
         opacity: 0.7,
         interactive: false
       }).addTo(this._map);
-  
-      // Store for cleanup
+
+      // Clean up old image URL
+      if (this._lastImageUrl) {
+        URL.revokeObjectURL(this._lastImageUrl);
+      }
       this._lastImageUrl = imageUrl;
-  
-      // Store center/zoom for reference
+
+      // Store current position for pan detection
       this._lastCenter = center;
-      this._lastZoom = zoom;
-  
+
     } catch (error) {
       console.error('Error updating radar:', error);
     }
-  }  
+  }
 
   _getAddonUrl(path) {
-    // Use direct port access, not ingress (ingress only works in HA UI, not from cards)
+    // Use direct port access
     return `http://homeassistant.local:8099${path}`;
   }
 
@@ -325,7 +327,7 @@ class WillyWeatherRadarCard extends LitElement {
       this._map = null;
     }
   }
-  
+
   getCardSize() {
     return 5;
   }
@@ -418,4 +420,4 @@ window.customCards.push({
   description: "Australian weather radar with auto-animation"
 });
 
-console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.0 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
+console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.1 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
