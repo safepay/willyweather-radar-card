@@ -1,21 +1,10 @@
 /**
  * WillyWeather Radar Card
- * Displays Australian weather radar with auto-animation
  */
 
 import { LitElement, html, css } from "https://unpkg.com/lit@3.1.0/index.js?module";
 
 class WillyWeatherRadarCard extends LitElement {
-  static get properties() {
-    return {
-      hass: { type: Object },
-      config: { type: Object },
-      _currentFrame: { type: Number, state: true },
-      _timestamps: { type: Array, state: true },
-      _loading: { type: Boolean, state: true }
-    };
-  }
-
   static getStubConfig() {
     return {
       zoom: 10,
@@ -25,6 +14,27 @@ class WillyWeatherRadarCard extends LitElement {
 
   static getConfigElement() {
     return document.createElement("willyweather-radar-card-editor");
+  }
+
+  static getLayoutOptions() {
+    return {
+      grid_columns: 4,
+      grid_rows: 4,
+      grid_min_columns: 2,
+      grid_max_columns: 4,
+      grid_min_rows: 3,
+      grid_max_rows: 6
+    };
+  }
+
+  static get properties() {
+    return {
+      hass: { type: Object },
+      config: { type: Object },
+      _currentFrame: { type: Number, state: true },
+      _timestamps: { type: Array, state: true },
+      _loading: { type: Boolean, state: true }
+    };
   }
 
   setConfig(config) {
@@ -61,7 +71,6 @@ class WillyWeatherRadarCard extends LitElement {
         padding: 0;
         position: relative;
         overflow: hidden;
-        min-height: 400px;
       }
 
       #map {
@@ -170,9 +179,7 @@ class WillyWeatherRadarCard extends LitElement {
       }
     }, 800);
 
-    this._reloadInterval = setInterval(() => {
-      this._loadTimestamps();
-    }, 300000);
+    this._reloadInterval = setInterval(() => this._loadTimestamps(), 300000);
   }
 
   async _loadTimestamps() {
@@ -265,20 +272,8 @@ class WillyWeatherRadarCard extends LitElement {
   getCardSize() {
     return 4;
   }
-
-  static getLayoutOptions() {
-    return {
-      grid_columns: 4,
-      grid_rows: 4,
-      grid_min_columns: 2,
-      grid_max_columns: 4,
-      grid_min_rows: 3,
-      grid_max_rows: 6
-    };
-  }
 }
 
-// Visual Editor
 class WillyWeatherRadarCardEditor extends LitElement {
   static get properties() {
     return {
