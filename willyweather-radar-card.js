@@ -433,8 +433,8 @@ class WillyWeatherRadarCard extends LitElement {
     if (!this._map) return;
   
     try {
-      // Show loading for this frame
-      this._loading = true;
+      // Remove these lines:
+      // this._loading = true;
       
       // Cancel previous radar fetch
       if (this._radarAbortController) {
@@ -458,7 +458,6 @@ class WillyWeatherRadarCard extends LitElement {
       
       if (!timestamp) {
         console.log('No timestamp available for current frame');
-        this._loading = false;
         return;
       }
   
@@ -473,7 +472,6 @@ class WillyWeatherRadarCard extends LitElement {
       
       if (!response.ok) {
         console.error('Failed to fetch radar:', response.status);
-        this._loading = false;
         return;
       }
   
@@ -484,7 +482,6 @@ class WillyWeatherRadarCard extends LitElement {
   
       if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
         console.error('Invalid bounds from addon');
-        this._loading = false;
         return;
       }
   
@@ -513,9 +510,8 @@ class WillyWeatherRadarCard extends LitElement {
         return;
       }
       console.error('Error updating radar:', error);
-    } finally {
-      this._loading = false;  // Hide loading when done
     }
+    // Remove the finally block with this._loading = false
   }
   
     _getAddonUrl(path) {
