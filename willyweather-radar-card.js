@@ -7,7 +7,8 @@ import { LitElement, html, css } from "https://unpkg.com/lit@3.1.0/index.js?modu
 class WillyWeatherRadarCard extends LitElement {
   static getStubConfig() {
     return {
-      zoom: 10
+      zoom: 10,
+      frames: 7
     };
   }
 
@@ -40,19 +41,29 @@ class WillyWeatherRadarCard extends LitElement {
     if (!config) {
       throw new Error("Invalid configuration");
     }
-  
+
+    const oldConfig = this.config;
+    
     this.config = {
       zoom: config.zoom || 10,
-      frames: config.frames || 7,  // NEW: configurable frame count
+      frames: config.frames || 7,
       ...config
     };
-  
-    this._currentFrame = 0;
-    this._timestamps = [];
-    this._loading = false;
-    this._currentMapType = null;
+
+    // If this is a config update after initial load, handle zoom change
+    if (oldConfig && this._map) {
+      if (oldConfig.zoom !== this.config.zoom) {
+        this._map.setZoom(this.config.zoom);
+      }
+    } else {
+      // Initial setup
+      this._currentFrame = 0;
+      this._timestamps = [];
+      this._loading = false;
+      this._currentMapType = null;
+    }
   }
-  
+
   static get styles() {
     return css`
       :host {
@@ -129,10 +140,26 @@ class WillyWeatherRadarCard extends LitElement {
   }
 
   async firstUpdated() {
+    await this._initialize();
+  }
+
+  async updated(changedProperties) {
+    super.updated(changedProperties);
+    
+    // If config changed and map doesn't exist yet, initialize
+    if (changedProperties.has('config') && !this._map) {
+      await this._initialize();
+    }
+  }
+
+  async _initialize() {
     await this._loadLeaflet();
     await new Promise(resolve => setTimeout(resolve, 100));
-    this._initMap();
-    await this._startAutoUpdate();
+    
+    if (!this._map) {
+      this._initMap();
+      await this._startAutoUpdate();
+    }
   }
 
   async _loadLeaflet() {
@@ -202,7 +229,7 @@ class WillyWeatherRadarCard extends LitElement {
     // Start new animation
     this._animationInterval = setInterval(() => {
       if (this._timestamps.length > 0) {
-        this._currentFrame = (this._currentFrame + 1) % Math.min(5, this._timestamps.length);
+        this._currentFrame = (this._currentFrame + 1) % Math.min(this.config.frames, this._timestamps.length);
         this._updateRadar();
       }
     }, 800);
@@ -243,19 +270,19 @@ class WillyWeatherRadarCard extends LitElement {
 
   async _loadTimestamps() {
     if (!this._map) return;
-  
+
     try {
       // STOP animation while loading new data
       this._stopAnimation();
       
       this._loading = true;
-  
+
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
       const mapType = this._getMapType(zoom);
-  
+
       console.log(`Loading timestamps: zoom=${zoom}, mapType=${mapType}`);
-  
+
       // If map type changed, clear ALL overlays and reset frame
       if (this._currentMapType && this._currentMapType !== mapType) {
         console.log(`Map type changed from ${this._currentMapType} to ${mapType}, clearing overlays`);
@@ -264,14 +291,14 @@ class WillyWeatherRadarCard extends LitElement {
         this._timestamps = [];
       }
       this._currentMapType = mapType;
-  
+
       const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&type=${mapType}`);
       const response = await fetch(url);
       
       if (!response.ok) throw new Error('Failed to load timestamps');
-  
+
       const allTimestamps = await response.json();
-      this._timestamps = allTimestamps.slice(-this.config.frames);  // Use config value
+      this._timestamps = allTimestamps.slice(-this.config.frames);
       this._currentFrame = 0;
       
       // Clear overlay before loading new one
@@ -291,20 +318,6 @@ class WillyWeatherRadarCard extends LitElement {
     }
   }
 
-_startAnimation() {
-  if (this._animationInterval) {
-    clearInterval(this._animationInterval);
-    this._animationInterval = null;
-  }
-
-  this._animationInterval = setInterval(() => {
-    if (this._timestamps.length > 0) {
-      this._currentFrame = (this._currentFrame + 1) % Math.min(this.config.frames, this._timestamps.length);
-      this._updateRadar();
-    }
-  }, 800);
-}
-  
   async _updateRadar() {
     if (!this._map) return;
 
@@ -458,7 +471,7 @@ class WillyWeatherRadarCardEditor extends LitElement {
     if (!this.config) {
       return html``;
     }
-  
+
     return html`
       <div class="option">
         <label>Initial Zoom Level (1-15)</label>
@@ -484,7 +497,7 @@ class WillyWeatherRadarCardEditor extends LitElement {
       </div>
     `;
   }
-  
+
   _valueChanged(ev) {
     if (!this.config || !this.hass) {
       return;
@@ -522,4 +535,4 @@ window.customCards.push({
   description: "Australian weather radar with auto-animation"
 });
 
-console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.3 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
+console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.4 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
