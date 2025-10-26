@@ -383,33 +383,24 @@ class WillyWeatherRadarCard extends LitElement {
 
   async _loadTimestamps() {
     if (!this._map) return;
-
+  
     try {
       // STOP animation while loading new data
       this._stopAnimation();
       
       this._loading = true;
-
+  
       const center = this._map.getCenter();
       const zoom = this._map.getZoom();
-      const mapType = this._getMapType(zoom);
-
-      console.log(`Loading timestamps: zoom=${zoom}, mapType=${mapType}`);
-
-      // If map type changed, clear ALL overlays and reset frame
-      if (this._currentMapType && this._currentMapType !== mapType) {
-        console.log(`Map type changed from ${this._currentMapType} to ${mapType}, clearing overlays`);
-        this._clearAllOverlays();
-        this._currentFrame = 0;
-        this._timestamps = [];
-      }
-      this._currentMapType = mapType;
-
-      const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}&type=${mapType}`);
+  
+      console.log(`Loading timestamps: zoom=${zoom}`);
+  
+      // Let SERVER determine map type - don't send type parameter
+      const url = this._getAddonUrl(`/api/timestamps?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}`);
       const response = await fetch(url);
       
       if (!response.ok) throw new Error('Failed to load timestamps');
-
+  
       const allTimestamps = await response.json();
       this._timestamps = allTimestamps.slice(-this.config.frames);
       this._currentFrame = 0;
@@ -430,7 +421,7 @@ class WillyWeatherRadarCard extends LitElement {
       this._loading = false;
     }
   }
-
+  
   async _updateRadar() {
     if (!this._map) return;
 
