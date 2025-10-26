@@ -186,14 +186,32 @@ class WillyWeatherRadarCard extends LitElement {
   async _startAutoUpdate() {
     await this._loadTimestamps();
     
+    this._startAnimation();
+
+    this._reloadInterval = setInterval(() => this._loadTimestamps(), 300000);
+  }
+
+  _startAnimation() {
+    // Clear any existing animation
+    if (this._animationInterval) {
+      clearInterval(this._animationInterval);
+      this._animationInterval = null;
+    }
+
+    // Start new animation
     this._animationInterval = setInterval(() => {
       if (this._timestamps.length > 0) {
         this._currentFrame = (this._currentFrame + 1) % Math.min(5, this._timestamps.length);
         this._updateRadar();
       }
     }, 800);
+  }
 
-    this._reloadInterval = setInterval(() => this._loadTimestamps(), 300000);
+  _stopAnimation() {
+    if (this._animationInterval) {
+      clearInterval(this._animationInterval);
+      this._animationInterval = null;
+    }
   }
 
   _getMapType(zoom) {
@@ -226,6 +244,9 @@ class WillyWeatherRadarCard extends LitElement {
     if (!this._map) return;
 
     try {
+      // STOP animation while loading new data
+      this._stopAnimation();
+      
       this._loading = true;
 
       const center = this._map.getCenter();
@@ -234,10 +255,12 @@ class WillyWeatherRadarCard extends LitElement {
 
       console.log(`Loading timestamps: zoom=${zoom}, mapType=${mapType}`);
 
-      // If map type changed, clear ALL overlays
+      // If map type changed, clear ALL overlays and reset frame
       if (this._currentMapType && this._currentMapType !== mapType) {
         console.log(`Map type changed from ${this._currentMapType} to ${mapType}, clearing overlays`);
         this._clearAllOverlays();
+        this._currentFrame = 0;
+        this._timestamps = [];
       }
       this._currentMapType = mapType;
 
@@ -250,7 +273,14 @@ class WillyWeatherRadarCard extends LitElement {
       this._timestamps = allTimestamps.slice(-5);
       this._currentFrame = 0;
       
+      // Clear overlay before loading new one
+      this._clearAllOverlays();
+      
+      // Load the first frame
       await this._updateRadar();
+      
+      // Restart animation
+      this._startAnimation();
       
     } catch (error) {
       console.error('Error loading timestamps:', error);
@@ -264,7 +294,7 @@ class WillyWeatherRadarCard extends LitElement {
     if (!this._map) return;
 
     try {
-      // Clear old overlay
+      // Clear old overlay FIRST
       if (this._overlay) {
         this._map.removeLayer(this._overlay);
         this._overlay = null;
@@ -278,12 +308,15 @@ class WillyWeatherRadarCard extends LitElement {
       const zoom = this._map.getZoom();
       const timestamp = this._timestamps[this._currentFrame];
       
-      if (!timestamp) return;
+      if (!timestamp) {
+        console.log('No timestamp available for current frame');
+        return;
+      }
 
       const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
       const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
 
-      console.log(`Fetching radar: zoom=${zoom}, timestamp=${timestamp}`);
+      console.log(`Fetching radar: zoom=${zoom}, frame=${this._currentFrame}, timestamp=${timestamp}`);
 
       // Fetch radar image
       const response = await fetch(url);
@@ -315,6 +348,9 @@ class WillyWeatherRadarCard extends LitElement {
       // Create image URL from blob
       const blob = await response.blob();
       const imageUrl = URL.createObjectURL(blob);
+
+      // Small delay to ensure old overlay is fully removed
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       // Add NEW overlay at the correct geographic position
       this._overlay = L.imageOverlay(imageUrl, bounds, {
@@ -354,13 +390,14 @@ class WillyWeatherRadarCard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     
-    if (this._animationInterval) {
-      clearInterval(this._animationInterval);
-    }
+    this._stopAnimation();
+    
     if (this._reloadInterval) {
       clearInterval(this._reloadInterval);
     }
+    
     this._clearAllOverlays();
+    
     if (this._map) {
       this._map.remove();
       this._map = null;
@@ -459,4 +496,4 @@ window.customCards.push({
   description: "Australian weather radar with auto-animation"
 });
 
-console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.2 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
+console.info("%c WILLYWEATHER-RADAR-CARD %c 1.0.3 ", "color: white; background: #1976D2; font-weight: 700;", "color: white; background: #424242;");
