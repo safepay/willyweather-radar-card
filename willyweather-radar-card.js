@@ -33,7 +33,8 @@ class WillyWeatherRadarCard extends LitElement {
       config: { type: Object },
       _currentFrame: { type: Number, state: true },
       _timestamps: { type: Array, state: true },
-      _loading: { type: Boolean, state: true }
+      _loading: { type: Boolean, state: true },
+      _isVisible: { type: Boolean, state: true }
     };
   }
 
@@ -41,7 +42,7 @@ class WillyWeatherRadarCard extends LitElement {
     if (!config) {
       throw new Error("Invalid configuration");
     }
-  
+
     const oldConfig = this.config;
     
     this.config = {
@@ -49,7 +50,7 @@ class WillyWeatherRadarCard extends LitElement {
       frames: config.frames || 7,
       ...config
     };
-  
+
     // If this is a config update after initial load, handle zoom change
     if (oldConfig && this._map) {
       if (oldConfig.zoom !== this.config.zoom) {
@@ -64,7 +65,7 @@ class WillyWeatherRadarCard extends LitElement {
       this._isVisible = true; // Assume visible initially
     }
   }
-  
+
   static get styles() {
     return css`
       :host {
@@ -180,9 +181,29 @@ class WillyWeatherRadarCard extends LitElement {
 
   async firstUpdated() {
     await this._initialize();
-    this._setupVisibilityObserver();
   }
-  
+
+  async updated(changedProperties) {
+    super.updated(changedProperties);
+    
+    // If config changed and map doesn't exist yet, initialize
+    if (changedProperties.has('config') && !this._map) {
+      await this._initialize();
+    }
+  }
+
+  async _initialize() {
+    await this._loadLeaflet();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    if (!this._map) {
+      this._initMap();
+      await this._startAutoUpdate();
+      this._setupVisibilityObserver();
+      this._setupPageVisibility();
+    }
+  }
+
   _setupVisibilityObserver() {
     // Use Intersection Observer to detect when card is visible
     this._intersectionObserver = new IntersectionObserver(
@@ -208,32 +229,11 @@ class WillyWeatherRadarCard extends LitElement {
         rootMargin: '50px' // Start loading slightly before card enters viewport
       }
     );
-  
+
     // Observe the card element
     this._intersectionObserver.observe(this);
   }
-  
-  async updated(changedProperties) {
-    super.updated(changedProperties);
-    
-    // If config changed and map doesn't exist yet, initialize
-    if (changedProperties.has('config') && !this._map) {
-      await this._initialize();
-    }
-  }
 
-  async _initialize() {
-    await this._loadLeaflet();
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    if (!this._map) {
-      this._initMap();
-      await this._startAutoUpdate();
-      this._setupVisibilityObserver();
-      this._setupPageVisibility();
-    }
-  }
-  
   _setupPageVisibility() {
     // Pause animation when browser tab is hidden
     this._handleVisibilityChange = () => {
@@ -245,10 +245,10 @@ class WillyWeatherRadarCard extends LitElement {
         this._startAnimation();
       }
     };
-  
+
     document.addEventListener('visibilitychange', this._handleVisibilityChange);
   }
-  
+
   async _loadLeaflet() {
     if (window.L) return;
 
@@ -326,13 +326,13 @@ class WillyWeatherRadarCard extends LitElement {
       clearInterval(this._animationInterval);
       this._animationInterval = null;
     }
-  
+
     // Only start if card is visible
     if (!this._isVisible) {
       console.log('Skipping animation start - card not visible');
       return;
     }
-  
+
     // Start new animation
     this._animationInterval = setInterval(() => {
       if (this._timestamps.length > 0 && this._isVisible) {
@@ -341,7 +341,14 @@ class WillyWeatherRadarCard extends LitElement {
       }
     }, 800);
   }
-  
+
+  _stopAnimation() {
+    if (this._animationInterval) {
+      clearInterval(this._animationInterval);
+      this._animationInterval = null;
+    }
+  }
+
   _getMapType(zoom) {
     // MUST MATCH SERVER LOGIC EXACTLY
     const zoomRadius = 5000 / Math.pow(2, zoom - 5);
@@ -546,8 +553,8 @@ class WillyWeatherRadarCard extends LitElement {
       this._map.remove();
       this._map = null;
     }
-  }  
-  
+  }
+
   getCardSize() {
     return 5;
   }
@@ -557,11 +564,7 @@ class WillyWeatherRadarCardEditor extends LitElement {
   static get properties() {
     return {
       hass: { type: Object },
-      config: { type: Object },
-      _currentFrame: { type: Number, state: true },
-      _timestamps: { type: Array, state: true },
-      _loading: { type: Boolean, state: true },
-      _isVisible: { type: Boolean, state: true }
+      config: { type: Object }
     };
   }
 
