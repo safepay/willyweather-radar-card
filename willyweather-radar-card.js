@@ -302,7 +302,7 @@ class WillyWeatherRadarCard extends LitElement {
         this._currentFrame = (this._currentFrame + 1) % Math.min(this.config.frames, this._timestamps.length);
         this._updateRadar();
       }
-    }, 800);
+    }, 1500);
   }
 
   _stopAnimation() {
@@ -433,6 +433,9 @@ class WillyWeatherRadarCard extends LitElement {
     if (!this._map) return;
   
     try {
+      // Show loading for this frame
+      this._loading = true;
+      
       // Cancel previous radar fetch
       if (this._radarAbortController) {
         this._radarAbortController.abort();
@@ -455,26 +458,25 @@ class WillyWeatherRadarCard extends LitElement {
       
       if (!timestamp) {
         console.log('No timestamp available for current frame');
+        this._loading = false;
         return;
       }
   
       const timestampParam = `&timestamp=${encodeURIComponent(timestamp)}`;
       const url = this._getAddonUrl(`/api/radar?lat=${center.lat}&lng=${center.lng}&zoom=${zoom}${timestampParam}`);
   
-      console.log(`Fetching radar: center=(${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}), zoom=${zoom}, frame=${this._currentFrame}, timestamp=${timestamp}`);
+      console.log(`Fetching radar: frame=${this._currentFrame}, timestamp=${timestamp}`);
   
-      // Fetch with timeout
       const response = await fetch(url, {
         signal: this._radarAbortController.signal,
-        // Add 10 second timeout for blending operations
       });
       
       if (!response.ok) {
         console.error('Failed to fetch radar:', response.status);
+        this._loading = false;
         return;
       }
   
-      // Read bounds
       const south = parseFloat(response.headers.get('X-Radar-Bounds-South'));
       const west = parseFloat(response.headers.get('X-Radar-Bounds-West'));
       const north = parseFloat(response.headers.get('X-Radar-Bounds-North'));
@@ -482,6 +484,7 @@ class WillyWeatherRadarCard extends LitElement {
   
       if (isNaN(south) || isNaN(west) || isNaN(north) || isNaN(east)) {
         console.error('Invalid bounds from addon');
+        this._loading = false;
         return;
       }
   
@@ -510,9 +513,11 @@ class WillyWeatherRadarCard extends LitElement {
         return;
       }
       console.error('Error updating radar:', error);
+    } finally {
+      this._loading = false;  // Hide loading when done
     }
   }
-
+  
     _getAddonUrl(path) {
     // Use direct port access
     return `http://homeassistant.local:8099${path}`;
