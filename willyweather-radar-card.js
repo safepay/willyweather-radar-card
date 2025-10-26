@@ -384,50 +384,62 @@ class WillyWeatherRadarCard extends LitElement {
     }
   }
 
-async _loadTimestamps() {
-  if (!this._map) return;
-
-  try {
-    this._stopAnimation();
-    this._loading = true;
-
-    // Lock the center and zoom for this animation cycle
-    this._lockedCenter = this._map.getCenter();
-    this._lockedZoom = this._map.getZoom();
-
-    console.log(`Loading timestamps: center=(${this._lockedCenter.lat.toFixed(4)}, ${this._lockedCenter.lng.toFixed(4)}), zoom=${this._lockedZoom}`);
-
-    const url = this._getAddonUrl(`/api/timestamps?lat=${this._lockedCenter.lat}&lng=${this._lockedCenter.lng}&zoom=${this._lockedZoom}`);
-    const response = await fetch(url);
-    
-    if (!response.ok) throw new Error('Failed to load timestamps');
-
-    const allTimestamps = await response.json();
-    this._timestamps = allTimestamps.slice(-this.config.frames);
-    this._currentFrame = 0;
-    
-    // Clear overlay before loading new one
-    this._clearAllOverlays();
-    
-    // Load the first frame
-    await this._updateRadar();
-    
-    // Restart animation
-    this._startAnimation();
-    
-  } catch (error) {
-    console.error('Error loading timestamps:', error);
-    this._timestamps = [];
-  } finally {
-    this._loading = false;
+  async _loadTimestamps() {
+    if (!this._map) return;
+  
+    try {
+      // Cancel any pending requests
+      if (this._abortController) {
+        this._abortController.abort();
+      }
+      this._abortController = new AbortController();
+      
+      this._stopAnimation();
+      this._loading = true;
+  
+      this._lockedCenter = this._map.getCenter();
+      this._lockedZoom = this._map.getZoom();
+  
+      console.log(`Loading timestamps: center=(${this._lockedCenter.lat.toFixed(4)}, ${this._lockedCenter.lng.toFixed(4)}), zoom=${this._lockedZoom}`);
+  
+      const url = this._getAddonUrl(`/api/timestamps?lat=${this._lockedCenter.lat}&lng=${this._lockedCenter.lng}&zoom=${this._lockedZoom}`);
+      const response = await fetch(url, { 
+        signal: this._abortController.signal  // Add abort signal
+      });
+      
+      if (!response.ok) throw new Error('Failed to load timestamps');
+  
+      const allTimestamps = await response.json();
+      this._timestamps = allTimestamps.slice(-this.config.frames);
+      this._currentFrame = 0;
+      
+      this._clearAllOverlays();
+      await this._updateRadar();
+      this._startAnimation();
+      
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('Request cancelled');
+        return;
+      }
+      console.error('Error loading timestamps:', error);
+      this._timestamps = [];
+    } finally {
+      this._loading = false;
+    }
   }
-}
-
+  
   async _updateRadar() {
     if (!this._map) return;
   
     try {
-      // Clear old overlay FIRST
+      // Cancel previous radar fetch
+      if (this._radarAbortController) {
+        this._radarAbortController.abort();
+      }
+      this._radarAbortController = new AbortController();
+      
+      // Clear old overlay
       if (this._overlay) {
         this._map.removeLayer(this._overlay);
         this._overlay = null;
@@ -437,7 +449,6 @@ async _loadTimestamps() {
         this._lastImageUrl = null;
       }
   
-      // Use LOCKED center and zoom from when timestamps were loaded
       const center = this._lockedCenter || this._map.getCenter();
       const zoom = this._lockedZoom || this._map.getZoom();
       const timestamp = this._timestamps[this._currentFrame];
@@ -452,15 +463,18 @@ async _loadTimestamps() {
   
       console.log(`Fetching radar: center=(${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}), zoom=${zoom}, frame=${this._currentFrame}, timestamp=${timestamp}`);
   
-      // Fetch radar image
-      const response = await fetch(url);
+      // Fetch with timeout
+      const response = await fetch(url, {
+        signal: this._radarAbortController.signal,
+        // Add 10 second timeout for blending operations
+      });
       
       if (!response.ok) {
         console.error('Failed to fetch radar:', response.status);
         return;
       }
   
-      // Read bounds from response headers
+      // Read bounds
       const south = parseFloat(response.headers.get('X-Radar-Bounds-South'));
       const west = parseFloat(response.headers.get('X-Radar-Bounds-West'));
       const north = parseFloat(response.headers.get('X-Radar-Bounds-North'));
@@ -471,35 +485,34 @@ async _loadTimestamps() {
         return;
       }
   
-      // Create Leaflet bounds from actual radar coverage area
       const bounds = L.latLngBounds(
         L.latLng(south, west),
         L.latLng(north, east)
       );
   
-      // Create image URL from blob
       const blob = await response.blob();
       const imageUrl = URL.createObjectURL(blob);
   
-      // Small delay to ensure old overlay is fully removed
       await new Promise(resolve => setTimeout(resolve, 10));
   
-      // Add NEW overlay at the correct geographic position
       this._overlay = L.imageOverlay(imageUrl, bounds, {
         opacity: 0.7,
         interactive: false
       }).addTo(this._map);
   
-      // Store for cleanup (but don't update _lastCenter - use locked values)
       this._lastImageUrl = imageUrl;
   
       console.log('Radar overlay added successfully');
   
     } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('Radar fetch cancelled');
+        return;
+      }
       console.error('Error updating radar:', error);
     }
   }
-  
+
     _getAddonUrl(path) {
     // Use direct port access
     return `http://homeassistant.local:8099${path}`;
@@ -526,29 +539,12 @@ async _loadTimestamps() {
   disconnectedCallback() {
     super.disconnectedCallback();
     
-    // Clean up page visibility listener
-    if (this._handleVisibilityChange) {
-      document.removeEventListener('visibilitychange', this._handleVisibilityChange);
+    // Cancel any pending requests
+    if (this._abortController) {
+      this._abortController.abort();
     }
-    
-    // Clean up intersection observer
-    if (this._intersectionObserver) {
-      this._intersectionObserver.disconnect();
-      this._intersectionObserver = null;
-    }
-    
-    this._stopAnimation();
-    
-    if (this._reloadInterval) {
-      clearInterval(this._reloadInterval);
-    }
-    
-    this._clearAllOverlays();
-    
-    if (this._map) {
-      this._map.remove();
-      this._map = null;
-    }
+    if (this._radarAbortController) {
+      this._radarAbortController.abort();
   }
 
   getCardSize() {
