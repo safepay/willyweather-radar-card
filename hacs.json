@@ -1,7 +1,5 @@
 {
   "name": "WillyWeather Radar Card",
-  "content_in_root": true,
-  "filename": "willyweather-radar-card.js",
   "render_readme": true,
   "country": ["AU"]
 }
