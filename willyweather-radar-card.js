@@ -23,6 +23,10 @@ class WillyWeatherRadarCard extends LitElement {
     };
   }
 
+  static getConfigElement() {
+    return document.createElement("willyweather-radar-card-editor");
+  }
+
   setConfig(config) {
     if (!config) {
       throw new Error("Invalid configuration");
@@ -117,7 +121,6 @@ class WillyWeatherRadarCard extends LitElement {
 
   async firstUpdated() {
     await this._loadLeaflet();
-    // Wait for Leaflet CSS to load
     await new Promise(resolve => setTimeout(resolve, 100));
     this._initMap();
     await this._startAutoUpdate();
@@ -139,7 +142,6 @@ class WillyWeatherRadarCard extends LitElement {
     const mapElement = this.shadowRoot.getElementById('map');
     if (!mapElement) return;
     
-    // Get Home Assistant home zone coordinates
     const homeZone = this.hass?.states['zone.home'];
     const lat = homeZone?.attributes?.latitude || -33.8688;
     const lng = homeZone?.attributes?.longitude || 151.2093;
@@ -154,17 +156,13 @@ class WillyWeatherRadarCard extends LitElement {
       maxZoom: 19
     }).addTo(this._map);
 
-    // Force map to recalculate size
     setTimeout(() => this._map?.invalidateSize(), 200);
-
-    // Update radar when user pans/zooms
     this._map.on('moveend', () => this._loadTimestamps());
   }
 
   async _startAutoUpdate() {
     await this._loadTimestamps();
     
-    // Auto-cycle through frames every 800ms
     this._animationInterval = setInterval(() => {
       if (this._timestamps.length > 0) {
         this._currentFrame = (this._currentFrame + 1) % Math.min(5, this._timestamps.length);
@@ -172,7 +170,6 @@ class WillyWeatherRadarCard extends LitElement {
       }
     }, 800);
 
-    // Reload timestamps every 5 minutes
     this._reloadInterval = setInterval(() => {
       this._loadTimestamps();
     }, 300000);
@@ -281,7 +278,104 @@ class WillyWeatherRadarCard extends LitElement {
   }
 }
 
+// Visual Editor
+class WillyWeatherRadarCardEditor extends LitElement {
+  static get properties() {
+    return {
+      hass: { type: Object },
+      config: { type: Object }
+    };
+  }
+
+  setConfig(config) {
+    this.config = config;
+  }
+
+  static get styles() {
+    return css`
+      .option {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--divider-color);
+      }
+
+      .option:last-child {
+        border-bottom: none;
+      }
+
+      .option label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+      }
+
+      ha-textfield {
+        width: 100%;
+      }
+    `;
+  }
+
+  render() {
+    if (!this.config) {
+      return html``;
+    }
+
+    return html`
+      <div class="option">
+        <label>Zoom Level (1-15)</label>
+        <ha-textfield
+          type="number"
+          .value=${this.config.zoom || 10}
+          .min=${1}
+          .max=${15}
+          @input=${this._valueChanged}
+          .configValue=${"zoom"}
+        ></ha-textfield>
+      </div>
+
+      <div class="option">
+        <label>Add-on Slug</label>
+        <ha-textfield
+          .value=${this.config.addon_slug || "willyweather_radar"}
+          @input=${this._valueChanged}
+          .configValue=${"addon_slug"}
+        ></ha-textfield>
+      </div>
+    `;
+  }
+
+  _valueChanged(ev) {
+    if (!this.config || !this.hass) {
+      return;
+    }
+
+    const target = ev.target;
+    const configValue = target.configValue;
+    let value = target.value;
+
+    if (configValue === "zoom") {
+      value = parseInt(value);
+    }
+
+    if (this.config[configValue] === value) {
+      return;
+    }
+
+    const newConfig = {
+      ...this.config,
+      [configValue]: value
+    };
+
+    const event = new CustomEvent("config-changed", {
+      detail: { config: newConfig },
+      bubbles: true,
+      composed: true
+    });
+    this.dispatchEvent(event);
+  }
+}
+
 customElements.define("willyweather-radar-card", WillyWeatherRadarCard);
+customElements.define("willyweather-radar-card-editor", WillyWeatherRadarCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
