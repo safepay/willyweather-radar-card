@@ -195,38 +195,58 @@ class WillyWeatherRadarCard extends LitElement {
     
     // If config changed
     if (changedProperties.has('config')) {
+      const oldConfig = changedProperties.get('config');
+      
       if (!this._map) {
         // Map doesn't exist - initialize it
+        console.log('Config changed, no map - initializing');
         await this._initialize();
-      } else {
-        // Map exists - update zoom and reload
-        const oldConfig = changedProperties.get('config');
+      } else if (oldConfig) {
+        // Map exists - check what changed
+        console.log('Config changed, map exists - checking changes');
         
-        if (oldConfig) {
-          // Check if zoom changed
-          if (oldConfig.zoom !== this.config.zoom) {
-            this._map.setZoom(this.config.zoom);
-            await this._loadTimestamps();
+        let needsReload = false;
+        
+        // Check if zoom changed
+        if (oldConfig.zoom !== this.config.zoom) {
+          console.log('Zoom changed:', oldConfig.zoom, '->', this.config.zoom);
+          this._map.setZoom(this.config.zoom);
+          needsReload = true;
+        }
+        
+        // Check if frames changed
+        if (oldConfig.frames !== this.config.frames) {
+          console.log('Frames changed:', oldConfig.frames, '->', this.config.frames);
+          needsReload = true;
+        }
+        
+        // Check if lat/lng changed
+        if (oldConfig.latitude !== this.config.latitude || 
+            oldConfig.longitude !== this.config.longitude) {
+          console.log('Location changed');
+          const lat = this.config.latitude || this.hass?.states['zone.home']?.attributes?.latitude || -33.8688;
+          const lng = this.config.longitude || this.hass?.states['zone.home']?.attributes?.longitude || 151.2093;
+          this._map.setView([lat, lng]);
+          
+          // Update home marker position
+          if (this._homeMarker) {
+            this._homeMarker.setLatLng([lat, lng]);
           }
           
-          // Check if frames changed
-          if (oldConfig.frames !== this.config.frames) {
-            await this._loadTimestamps();
-          }
-          
-          // Check if lat/lng changed
-          if (oldConfig.latitude !== this.config.latitude || 
-              oldConfig.longitude !== this.config.longitude) {
-            const lat = this.config.latitude || this.hass?.states['zone.home']?.attributes?.latitude || -33.8688;
-            const lng = this.config.longitude || this.hass?.states['zone.home']?.attributes?.longitude || 151.2093;
-            this._map.setView([lat, lng]);
-            await this._loadTimestamps();
-          }
+          needsReload = true;
+        }
+        
+        // Reload timestamps if anything changed
+        if (needsReload) {
+          console.log('Config changed - reloading timestamps');
+          // Give the map time to update
+          await new Promise(resolve => setTimeout(resolve, 100));
+          await this._loadTimestamps();
         }
       }
     }
   }
-
+  
   async _initialize() {
     await this._loadLeaflet();
     await new Promise(resolve => setTimeout(resolve, 100));
