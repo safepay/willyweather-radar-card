@@ -54,15 +54,17 @@ class WillyWeatherRadarCard extends LitElement {
     if (!config) {
       throw new Error("Invalid configuration");
     }
-
+  
     const oldConfig = this.config;
     
     this.config = {
-      zoom: config.zoom || 10,
-      frames: config.frames || 7,
-      ...config
+      ...config,  // Spread first to get all values
+      zoom: config.zoom || 8,  // Then apply defaults only if missing
+      frames: config.frames || 5,
+      latitude: config.latitude !== undefined ? config.latitude : null,
+      longitude: config.longitude !== undefined ? config.longitude : null
     };
-
+  
     // If this is a config update after initial load, handle zoom change
     if (oldConfig && this._map) {
       if (oldConfig.zoom !== this.config.zoom) {
@@ -70,7 +72,7 @@ class WillyWeatherRadarCard extends LitElement {
       }
     }
   }
-
+  
   static get styles() {
     return css`
       :host {
