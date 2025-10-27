@@ -248,49 +248,58 @@ class WillyWeatherRadarCard extends LitElement {
   }
   
   async _initialize() {
-    await this._loadLeaflet();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    try {
+      await this._loadLeaflet();
+      await new Promise(resolve => setTimeout(resolve, 100));
   
-    const mapElement = this.shadowRoot.getElementById('map');
+      const mapElement = this.shadowRoot.getElementById('map');
   
-    if (!mapElement) {
-      console.error('Map element not found!');
-      return;
-    }
-  
-    // Only initialize if we truly don't have a working map
-    if (!this._map) {
-      console.log('Initializing map');
-  
-      // Stop any existing intervals
-      if (this._reloadInterval) {
-        clearInterval(this._reloadInterval);
-        this._reloadInterval = null;
+      if (!mapElement) {
+        console.error('Map element not found!');
+        return;
       }
   
-      if (this._animationInterval) {
-        clearInterval(this._animationInterval);
-        this._animationInterval = null;
-      }
+      // Only initialize if we truly don't have a working map
+      if (!this._map) {
+        console.log('Initializing map');
   
-      // Initialize fresh
-      this._initMap();
+        // Stop any existing intervals
+        if (this._reloadInterval) {
+          clearInterval(this._reloadInterval);
+          this._reloadInterval = null;
+        }
   
-      // Force Leaflet to recalculate the map size
-      if (this._map) {
+        if (this._animationInterval) {
+          clearInterval(this._animationInterval);
+          this._animationInterval = null;
+        }
+  
+        // Initialize fresh
+        this._initMap();
+  
+        if (!this._map) {
+          console.error('Map initialization failed - _map is still null');
+          this._loading = false; // Clear loading state
+          return;
+        }
+  
+        // Force Leaflet to recalculate the map size
         setTimeout(() => {
           if (this._map) {
             this._map.invalidateSize();
             console.log('Map size invalidated');
           }
         }, 300);
-      }
   
-      await this._startAutoUpdate();
-      this._setupVisibilityObserver();
-      this._setupPageVisibility();
-    } else {
-      console.log('Map already exists, skipping initialization');
+        await this._startAutoUpdate();
+        this._setupVisibilityObserver();
+        this._setupPageVisibility();
+      } else {
+        console.log('Map already exists, skipping initialization');
+      }
+    } catch (error) {
+      console.error('Error in _initialize:', error);
+      this._loading = false; // Make sure to clear loading state on error
     }
   }
   
@@ -308,64 +317,87 @@ class WillyWeatherRadarCard extends LitElement {
 
   _initMap() {
     const mapElement = this.shadowRoot.getElementById('map');
-    if (!mapElement) return;
+    if (!mapElement) {
+      console.error('No map element in _initMap');
+      return;
+    }
     
     // Use config lat/lng if provided, otherwise use home zone
     const homeZone = this.hass?.states['zone.home'];
     const lat = this.config.latitude || homeZone?.attributes?.latitude || -33.8688;
     const lng = this.config.longitude || homeZone?.attributes?.longitude || 151.2093;
   
+    console.log('Creating Leaflet map at', lat, lng, 'zoom', this.config.zoom);
+  
     try {
       this._map = L.map(mapElement, {
         zoomControl: true,
         attributionControl: true
       }).setView([lat, lng], this.config.zoom);
+      
+      console.log('Leaflet map created successfully');
     } catch (e) {
       if (e.message && e.message.includes('already initialized')) {
-        console.log('Map container already has Leaflet - skipping tile layer setup');
-        return; // Exit early - map is already set up
+        console.warn('Map container already initialized, attempting to reuse');
+        // Try to find existing map instance from Leaflet's internal registry
+        if (window.L && window.L.DomUtil && mapElement._leaflet_id) {
+          const mapId = mapElement._leaflet_id;
+          // Try to get map from Leaflet's internal map registry
+          // This is a hack but sometimes necessary
+          console.log('Attempting to recover map from Leaflet registry, id:', mapId);
+        }
+        // Don't return - continue setup even if map exists
+      } else {
+        console.error('Error creating Leaflet map:', e);
+        throw e;
       }
-      throw e; // Rethrow other errors
     }
   
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
-      maxZoom: 19
-    }).addTo(this._map);
+    // Only add tiles and markers if we actually created a new map
+    if (this._map && !this._map._container._leaflet_map) {
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19
+      }).addTo(this._map);
   
-    // Add home marker
-    const homeIcon = L.divIcon({
-      html: '<div class="home-marker">🏠</div>',
-      className: 'home-marker-container',
-      iconSize: [24, 24],
-      iconAnchor: [12, 12]
-    });
+      // Add home marker
+      const homeIcon = L.divIcon({
+        html: '<div class="home-marker">🏠</div>',
+        className: 'home-marker-container',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
   
-    this._homeMarker = L.marker([lat, lng], { 
-      icon: homeIcon,
-      interactive: false,
-      zIndexOffset: 1000
-    }).addTo(this._map);
+      this._homeMarker = L.marker([lat, lng], { 
+        icon: homeIcon,
+        interactive: false,
+        zIndexOffset: 1000
+      }).addTo(this._map);
   
-    setTimeout(() => this._map?.invalidateSize(), 200);
-    
-    // Reload timestamps when zoom changes
-    this._map.on('zoomend', () => {
-      this._loadTimestamps();
-    });
-    
-    this._map.on('moveend', () => {
-      const currentCenter = this._map.getCenter();
-      const lockedCenter = this._lockedCenter || this._lastCenter;
+      setTimeout(() => this._map?.invalidateSize(), 200);
       
-      if (lockedCenter) {
-        const distance = currentCenter.distanceTo(lockedCenter);
-        if (distance > 50000) {
-          console.log('Map moved significantly, reloading timestamps');
-          this._loadTimestamps();
+      // Reload timestamps when zoom changes
+      this._map.on('zoomend', () => {
+        this._loadTimestamps();
+      });
+      
+      this._map.on('moveend', () => {
+        const currentCenter = this._map.getCenter();
+        const lockedCenter = this._lockedCenter || this._lastCenter;
+        
+        if (lockedCenter) {
+          const distance = currentCenter.distanceTo(lockedCenter);
+          if (distance > 50000) {
+            console.log('Map moved significantly, reloading timestamps');
+            this._loadTimestamps();
+          }
         }
-      }
-    });
+      });
+      
+      console.log('Map tiles and markers added');
+    } else {
+      console.log('Skipping tile/marker setup - map already configured');
+    }
   }
   
   async _startAutoUpdate() {
