@@ -192,11 +192,11 @@ class WillyWeatherRadarCard extends LitElement {
 
   async updated(changedProperties) {
     super.updated(changedProperties);
-
-    // If config changed
+  
+    // ONLY handle config changes, nothing else
     if (changedProperties.has('config')) {
       const oldConfig = changedProperties.get('config');
-
+  
       if (!this._map) {
         // Map doesn't exist - initialize it
         console.log('Config changed, no map - initializing');
@@ -204,22 +204,22 @@ class WillyWeatherRadarCard extends LitElement {
       } else if (oldConfig) {
         // Map exists - check what changed
         console.log('Config changed, map exists - checking changes');
-
+  
         let needsReload = false;
-
+  
         // Check if zoom changed
         if (oldConfig.zoom !== this.config.zoom) {
           console.log('Zoom changed:', oldConfig.zoom, '->', this.config.zoom);
           this._map.setZoom(this.config.zoom);
           needsReload = true;
         }
-
+  
         // Check if frames changed
         if (oldConfig.frames !== this.config.frames) {
           console.log('Frames changed:', oldConfig.frames, '->', this.config.frames);
           needsReload = true;
         }
-
+  
         // Check if lat/lng changed
         if (oldConfig.latitude !== this.config.latitude ||
             oldConfig.longitude !== this.config.longitude) {
@@ -227,15 +227,15 @@ class WillyWeatherRadarCard extends LitElement {
           const lat = this.config.latitude || this.hass?.states['zone.home']?.attributes?.latitude || -33.8688;
           const lng = this.config.longitude || this.hass?.states['zone.home']?.attributes?.longitude || 151.2093;
           this._map.setView([lat, lng]);
-
+  
           // Update home marker position
           if (this._homeMarker) {
             this._homeMarker.setLatLng([lat, lng]);
           }
-
+  
           needsReload = true;
         }
-
+  
         // Reload timestamps if anything changed
         if (needsReload) {
           console.log('Config changed - reloading timestamps');
@@ -243,21 +243,6 @@ class WillyWeatherRadarCard extends LitElement {
           await new Promise(resolve => setTimeout(resolve, 100));
           await this._loadTimestamps();
         }
-      }
-    }
-
-    // Check if map needs reinitialization after any render
-    // This handles cases like exiting edit mode where the DOM is re-rendered
-    const mapElement = this.shadowRoot.getElementById('map');
-    if (mapElement) {
-      // If map exists but its container is not the current element, reinitialize
-      // Or if map doesn't exist at all, initialize
-      if (this._map && this._map._container !== mapElement) {
-        console.log('Map container changed, reinitializing');
-        await this._initialize();
-      } else if (!this._map) {
-        console.log('Map missing after render, initializing');
-        await this._initialize();
       }
     }
   }
