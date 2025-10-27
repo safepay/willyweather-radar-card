@@ -278,8 +278,24 @@ class WillyWeatherRadarCard extends LitElement {
         this._animationInterval = null;
       }
       
+      // Force re-render of the component
+      this.requestUpdate();
+      await this.updateComplete;
+      
+      // Wait a bit longer for DOM to settle
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
       // Initialize fresh
       this._initMap();
+      
+      // Force Leaflet to recalculate the map size
+      if (this._map) {
+        setTimeout(() => {
+          this._map.invalidateSize();
+          console.log('Map size invalidated');
+        }, 300);
+      }
+      
       await this._startAutoUpdate();
       this._setupVisibilityObserver();
       this._setupPageVisibility();
