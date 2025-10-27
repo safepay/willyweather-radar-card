@@ -224,6 +224,18 @@ class WillyWeatherRadarCard extends LitElement {
       }
     }
   }
+
+  async _initialize() {
+    await this._loadLeaflet();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    if (!this._map) {
+      this._initMap();
+      await this._startAutoUpdate();
+      this._setupVisibilityObserver();
+      this._setupPageVisibility();
+    }
+  }
   
   async _loadLeaflet() {
     if (window.L) return;
