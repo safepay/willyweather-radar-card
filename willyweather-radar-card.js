@@ -251,11 +251,40 @@ class WillyWeatherRadarCard extends LitElement {
     await this._loadLeaflet();
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    if (!this._map) {
+    // Always initialize if no map, or if map element doesn't exist
+    const mapElement = this.shadowRoot.getElementById('map');
+    
+    if (!this._map || !mapElement || !mapElement._leaflet_id) {
+      console.log('Initializing map');
+      
+      // Clean up old map if it exists
+      if (this._map) {
+        try {
+          this._map.remove();
+        } catch (e) {
+          console.log('Error removing old map:', e);
+        }
+        this._map = null;
+      }
+      
+      // Stop any existing intervals
+      if (this._reloadInterval) {
+        clearInterval(this._reloadInterval);
+        this._reloadInterval = null;
+      }
+      
+      if (this._animationInterval) {
+        clearInterval(this._animationInterval);
+        this._animationInterval = null;
+      }
+      
+      // Initialize fresh
       this._initMap();
       await this._startAutoUpdate();
       this._setupVisibilityObserver();
       this._setupPageVisibility();
+    } else {
+      console.log('Map already initialized, skipping');
     }
   }
   
