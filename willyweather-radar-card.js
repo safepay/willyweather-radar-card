@@ -251,7 +251,7 @@ class WillyWeatherRadarCard extends LitElement {
     await this._loadLeaflet();
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    const mapElement = this.shadowRoot.getElementById('map');
+    let mapElement = this.shadowRoot.getElementById('map');
     
     if (!mapElement) {
       console.error('Map element not found!');
@@ -259,14 +259,8 @@ class WillyWeatherRadarCard extends LitElement {
     }
     
     // Check if we need to initialize
-    if (!this._map || !this._map.getContainer()) {
+    if (!this._map || mapElement._leaflet_id) {
       console.log('Initializing map');
-      
-      // CRITICAL: Remove Leaflet's internal reference to this container
-      if (mapElement._leaflet_id) {
-        console.log('Cleaning up old Leaflet instance from container');
-        delete mapElement._leaflet_id;
-      }
       
       // Clean up old map if it exists
       if (this._map) {
@@ -289,7 +283,17 @@ class WillyWeatherRadarCard extends LitElement {
         this._animationInterval = null;
       }
       
-      // Force re-render of the component
+      // NUCLEAR OPTION: Completely recreate the map div
+      if (mapElement._leaflet_id) {
+        console.log('Recreating map container to clear Leaflet state');
+        const parent = mapElement.parentElement;
+        const newMapElement = document.createElement('div');
+        newMapElement.id = 'map';
+        parent.replaceChild(newMapElement, mapElement);
+        mapElement = newMapElement;
+      }
+      
+      // Force re-render
       this.requestUpdate();
       await this.updateComplete;
       
@@ -302,8 +306,10 @@ class WillyWeatherRadarCard extends LitElement {
       // Force Leaflet to recalculate the map size
       if (this._map) {
         setTimeout(() => {
-          this._map.invalidateSize();
-          console.log('Map size invalidated');
+          if (this._map) {
+            this._map.invalidateSize();
+            console.log('Map size invalidated');
+          }
         }, 300);
       }
       
