@@ -250,70 +250,32 @@ class WillyWeatherRadarCard extends LitElement {
   async _initialize() {
     await this._loadLeaflet();
     await new Promise(resolve => setTimeout(resolve, 100));
-
-    let mapElement = this.shadowRoot.getElementById('map');
-
+  
+    const mapElement = this.shadowRoot.getElementById('map');
+  
     if (!mapElement) {
       console.error('Map element not found!');
       return;
     }
-
-    // Determine if we need to initialize
-    // We need to initialize if:
-    // 1. No map exists
-    // 2. Map exists but container is different
-    // 3. Map element has leftover Leaflet state
-    const needsInit = !this._map ||
-                      (this._map && this._map._container !== mapElement) ||
-                      mapElement._leaflet_id;
-
-    if (needsInit) {
-      console.log('Initializing map (needsInit:',
-        !this._map ? 'no map' :
-        this._map._container !== mapElement ? 'container changed' :
-        'leaflet_id present', ')');
-
-      // Clean up old map if it exists
-      if (this._map) {
-        try {
-          this._map.remove();
-        } catch (e) {
-          console.log('Error removing old map:', e);
-        }
-        this._map = null;
-      }
-
+  
+    // Only initialize if we truly don't have a working map
+    if (!this._map) {
+      console.log('Initializing map');
+  
       // Stop any existing intervals
       if (this._reloadInterval) {
         clearInterval(this._reloadInterval);
         this._reloadInterval = null;
       }
-
+  
       if (this._animationInterval) {
         clearInterval(this._animationInterval);
         this._animationInterval = null;
       }
-
-      // NUCLEAR OPTION: Completely recreate the map div if it has Leaflet state
-      if (mapElement._leaflet_id) {
-        console.log('Recreating map container to clear Leaflet state');
-        const parent = mapElement.parentElement;
-        const newMapElement = document.createElement('div');
-        newMapElement.id = 'map';
-        parent.replaceChild(newMapElement, mapElement);
-        mapElement = newMapElement;
-      }
-
-      // Force re-render
-      this.requestUpdate();
-      await this.updateComplete;
-
-      // Wait for DOM to settle
-      await new Promise(resolve => setTimeout(resolve, 200));
-
+  
       // Initialize fresh
       this._initMap();
-
+  
       // Force Leaflet to recalculate the map size
       if (this._map) {
         setTimeout(() => {
@@ -323,12 +285,12 @@ class WillyWeatherRadarCard extends LitElement {
           }
         }, 300);
       }
-
+  
       await this._startAutoUpdate();
       this._setupVisibilityObserver();
       this._setupPageVisibility();
     } else {
-      console.log('Map already initialized and valid, skipping');
+      console.log('Map already exists, skipping initialization');
     }
   }
   
@@ -353,10 +315,18 @@ class WillyWeatherRadarCard extends LitElement {
     const lat = this.config.latitude || homeZone?.attributes?.latitude || -33.8688;
     const lng = this.config.longitude || homeZone?.attributes?.longitude || 151.2093;
   
-    this._map = L.map(mapElement, {
-      zoomControl: true,
-      attributionControl: true
-    }).setView([lat, lng], this.config.zoom);
+    try {
+      this._map = L.map(mapElement, {
+        zoomControl: true,
+        attributionControl: true
+      }).setView([lat, lng], this.config.zoom);
+    } catch (e) {
+      if (e.message && e.message.includes('already initialized')) {
+        console.log('Map container already has Leaflet - skipping tile layer setup');
+        return; // Exit early - map is already set up
+      }
+      throw e; // Rethrow other errors
+    }
   
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap',
