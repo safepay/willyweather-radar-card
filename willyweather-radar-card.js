@@ -192,11 +192,11 @@ class WillyWeatherRadarCard extends LitElement {
 
   async updated(changedProperties) {
     super.updated(changedProperties);
-    
+
     // If config changed
     if (changedProperties.has('config')) {
       const oldConfig = changedProperties.get('config');
-      
+
       if (!this._map) {
         // Map doesn't exist - initialize it
         console.log('Config changed, no map - initializing');
@@ -204,38 +204,38 @@ class WillyWeatherRadarCard extends LitElement {
       } else if (oldConfig) {
         // Map exists - check what changed
         console.log('Config changed, map exists - checking changes');
-        
+
         let needsReload = false;
-        
+
         // Check if zoom changed
         if (oldConfig.zoom !== this.config.zoom) {
           console.log('Zoom changed:', oldConfig.zoom, '->', this.config.zoom);
           this._map.setZoom(this.config.zoom);
           needsReload = true;
         }
-        
+
         // Check if frames changed
         if (oldConfig.frames !== this.config.frames) {
           console.log('Frames changed:', oldConfig.frames, '->', this.config.frames);
           needsReload = true;
         }
-        
+
         // Check if lat/lng changed
-        if (oldConfig.latitude !== this.config.latitude || 
+        if (oldConfig.latitude !== this.config.latitude ||
             oldConfig.longitude !== this.config.longitude) {
           console.log('Location changed');
           const lat = this.config.latitude || this.hass?.states['zone.home']?.attributes?.latitude || -33.8688;
           const lng = this.config.longitude || this.hass?.states['zone.home']?.attributes?.longitude || 151.2093;
           this._map.setView([lat, lng]);
-          
+
           // Update home marker position
           if (this._homeMarker) {
             this._homeMarker.setLatLng([lat, lng]);
           }
-          
+
           needsReload = true;
         }
-        
+
         // Reload timestamps if anything changed
         if (needsReload) {
           console.log('Config changed - reloading timestamps');
@@ -245,23 +245,49 @@ class WillyWeatherRadarCard extends LitElement {
         }
       }
     }
+
+    // Check if map needs reinitialization after any render
+    // This handles cases like exiting edit mode where the DOM is re-rendered
+    const mapElement = this.shadowRoot.getElementById('map');
+    if (mapElement) {
+      // If map exists but its container is not the current element, reinitialize
+      // Or if map doesn't exist at all, initialize
+      if (this._map && this._map._container !== mapElement) {
+        console.log('Map container changed, reinitializing');
+        await this._initialize();
+      } else if (!this._map) {
+        console.log('Map missing after render, initializing');
+        await this._initialize();
+      }
+    }
   }
   
   async _initialize() {
     await this._loadLeaflet();
     await new Promise(resolve => setTimeout(resolve, 100));
-    
+
     let mapElement = this.shadowRoot.getElementById('map');
-    
+
     if (!mapElement) {
       console.error('Map element not found!');
       return;
     }
-    
-    // Check if we need to initialize
-    if (!this._map || mapElement._leaflet_id) {
-      console.log('Initializing map');
-      
+
+    // Determine if we need to initialize
+    // We need to initialize if:
+    // 1. No map exists
+    // 2. Map exists but container is different
+    // 3. Map element has leftover Leaflet state
+    const needsInit = !this._map ||
+                      (this._map && this._map._container !== mapElement) ||
+                      mapElement._leaflet_id;
+
+    if (needsInit) {
+      console.log('Initializing map (needsInit:',
+        !this._map ? 'no map' :
+        this._map._container !== mapElement ? 'container changed' :
+        'leaflet_id present', ')');
+
       // Clean up old map if it exists
       if (this._map) {
         try {
@@ -271,19 +297,19 @@ class WillyWeatherRadarCard extends LitElement {
         }
         this._map = null;
       }
-      
+
       // Stop any existing intervals
       if (this._reloadInterval) {
         clearInterval(this._reloadInterval);
         this._reloadInterval = null;
       }
-      
+
       if (this._animationInterval) {
         clearInterval(this._animationInterval);
         this._animationInterval = null;
       }
-      
-      // NUCLEAR OPTION: Completely recreate the map div
+
+      // NUCLEAR OPTION: Completely recreate the map div if it has Leaflet state
       if (mapElement._leaflet_id) {
         console.log('Recreating map container to clear Leaflet state');
         const parent = mapElement.parentElement;
@@ -292,17 +318,17 @@ class WillyWeatherRadarCard extends LitElement {
         parent.replaceChild(newMapElement, mapElement);
         mapElement = newMapElement;
       }
-      
+
       // Force re-render
       this.requestUpdate();
       await this.updateComplete;
-      
+
       // Wait for DOM to settle
       await new Promise(resolve => setTimeout(resolve, 200));
-      
+
       // Initialize fresh
       this._initMap();
-      
+
       // Force Leaflet to recalculate the map size
       if (this._map) {
         setTimeout(() => {
@@ -312,12 +338,12 @@ class WillyWeatherRadarCard extends LitElement {
           }
         }, 300);
       }
-      
+
       await this._startAutoUpdate();
       this._setupVisibilityObserver();
       this._setupPageVisibility();
     } else {
-      console.log('Map already initialized, skipping');
+      console.log('Map already initialized and valid, skipping');
     }
   }
   
