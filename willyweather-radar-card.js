@@ -251,11 +251,22 @@ class WillyWeatherRadarCard extends LitElement {
     await this._loadLeaflet();
     await new Promise(resolve => setTimeout(resolve, 100));
     
-    // Always initialize if no map, or if map element doesn't exist
     const mapElement = this.shadowRoot.getElementById('map');
     
-    if (!this._map || !mapElement || !mapElement._leaflet_id) {
+    if (!mapElement) {
+      console.error('Map element not found!');
+      return;
+    }
+    
+    // Check if we need to initialize
+    if (!this._map || !this._map.getContainer()) {
       console.log('Initializing map');
+      
+      // CRITICAL: Remove Leaflet's internal reference to this container
+      if (mapElement._leaflet_id) {
+        console.log('Cleaning up old Leaflet instance from container');
+        delete mapElement._leaflet_id;
+      }
       
       // Clean up old map if it exists
       if (this._map) {
@@ -282,7 +293,7 @@ class WillyWeatherRadarCard extends LitElement {
       this.requestUpdate();
       await this.updateComplete;
       
-      // Wait a bit longer for DOM to settle
+      // Wait for DOM to settle
       await new Promise(resolve => setTimeout(resolve, 200));
       
       // Initialize fresh
