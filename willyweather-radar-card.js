@@ -433,25 +433,14 @@ class WillyWeatherRadarCard extends LitElement {
     if (!this._map) return;
   
     try {
-      // Remove these lines:
-      // this._loading = true;
-      
       // Cancel previous radar fetch
       if (this._radarAbortController) {
         this._radarAbortController.abort();
       }
       this._radarAbortController = new AbortController();
       
-      // Clear old overlay
-      if (this._overlay) {
-        this._map.removeLayer(this._overlay);
-        this._overlay = null;
-      }
-      if (this._lastImageUrl) {
-        URL.revokeObjectURL(this._lastImageUrl);
-        this._lastImageUrl = null;
-      }
-  
+      // DON'T remove old overlay yet - wait until new one is ready
+      
       const center = this._lockedCenter || this._map.getCenter();
       const zoom = this._lockedZoom || this._map.getZoom();
       const timestamp = this._timestamps[this._currentFrame];
@@ -493,13 +482,25 @@ class WillyWeatherRadarCard extends LitElement {
       const blob = await response.blob();
       const imageUrl = URL.createObjectURL(blob);
   
-      await new Promise(resolve => setTimeout(resolve, 10));
-  
-      this._overlay = L.imageOverlay(imageUrl, bounds, {
+      // Create new overlay FIRST
+      const newOverlay = L.imageOverlay(imageUrl, bounds, {
         opacity: 0.7,
         interactive: false
-      }).addTo(this._map);
+      });
+      
+      // Add new overlay to map
+      newOverlay.addTo(this._map);
   
+      // NOW remove old overlay (new one is already visible)
+      if (this._overlay) {
+        this._map.removeLayer(this._overlay);
+      }
+      if (this._lastImageUrl) {
+        URL.revokeObjectURL(this._lastImageUrl);
+      }
+      
+      // Update references
+      this._overlay = newOverlay;
       this._lastImageUrl = imageUrl;
   
       console.log('Radar overlay added successfully');
@@ -511,7 +512,6 @@ class WillyWeatherRadarCard extends LitElement {
       }
       console.error('Error updating radar:', error);
     }
-    // Remove the finally block with this._loading = false
   }
   
     _getAddonUrl(path) {
