@@ -17,11 +17,13 @@ class WillyWeatherRadarCard extends LitElement {
 
   static getStubConfig() {
     return {
-      zoom: 10,
-      frames: 7
+      zoom: 8,
+      frames: 5,  // Changed from 7 to 5
+      latitude: null,
+      longitude: null
     };
   }
-
+  
   static getConfigElement() {
     return document.createElement("willyweather-radar-card-editor");
   }
@@ -189,24 +191,40 @@ class WillyWeatherRadarCard extends LitElement {
   async updated(changedProperties) {
     super.updated(changedProperties);
     
-    // If config changed and map doesn't exist yet, initialize
-    if (changedProperties.has('config') && !this._map) {
-      await this._initialize();
+    // If config changed
+    if (changedProperties.has('config')) {
+      if (!this._map) {
+        // Map doesn't exist - initialize it
+        await this._initialize();
+      } else {
+        // Map exists - update zoom and reload
+        const oldConfig = changedProperties.get('config');
+        
+        if (oldConfig) {
+          // Check if zoom changed
+          if (oldConfig.zoom !== this.config.zoom) {
+            this._map.setZoom(this.config.zoom);
+            await this._loadTimestamps();
+          }
+          
+          // Check if frames changed
+          if (oldConfig.frames !== this.config.frames) {
+            await this._loadTimestamps();
+          }
+          
+          // Check if lat/lng changed
+          if (oldConfig.latitude !== this.config.latitude || 
+              oldConfig.longitude !== this.config.longitude) {
+            const lat = this.config.latitude || this.hass?.states['zone.home']?.attributes?.latitude || -33.8688;
+            const lng = this.config.longitude || this.hass?.states['zone.home']?.attributes?.longitude || 151.2093;
+            this._map.setView([lat, lng]);
+            await this._loadTimestamps();
+          }
+        }
+      }
     }
   }
-
-  async _initialize() {
-    await this._loadLeaflet();
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    if (!this._map) {
-      this._initMap();
-      await this._startAutoUpdate();
-      this._setupVisibilityObserver();
-      this._setupPageVisibility();
-    }
-  }
-
+  
   async _loadLeaflet() {
     if (window.L) return;
 
@@ -223,20 +241,21 @@ class WillyWeatherRadarCard extends LitElement {
     const mapElement = this.shadowRoot.getElementById('map');
     if (!mapElement) return;
     
+    // Use config lat/lng if provided, otherwise use home zone
     const homeZone = this.hass?.states['zone.home'];
-    const lat = homeZone?.attributes?.latitude || -33.8688;
-    const lng = homeZone?.attributes?.longitude || 151.2093;
-
+    const lat = this.config.latitude || homeZone?.attributes?.latitude || -33.8688;
+    const lng = this.config.longitude || homeZone?.attributes?.longitude || 151.2093;
+  
     this._map = L.map(mapElement, {
       zoomControl: true,
       attributionControl: true
     }).setView([lat, lng], this.config.zoom);
-
+  
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap',
       maxZoom: 19
     }).addTo(this._map);
-
+  
     // Add home marker
     const homeIcon = L.divIcon({
       html: '<div class="home-marker">🏠</div>',
@@ -244,13 +263,13 @@ class WillyWeatherRadarCard extends LitElement {
       iconSize: [24, 24],
       iconAnchor: [12, 12]
     });
-
+  
     this._homeMarker = L.marker([lat, lng], { 
       icon: homeIcon,
       interactive: false,
       zIndexOffset: 1000
     }).addTo(this._map);
-
+  
     setTimeout(() => this._map?.invalidateSize(), 200);
     
     // Reload timestamps when zoom changes
@@ -258,7 +277,6 @@ class WillyWeatherRadarCard extends LitElement {
       this._loadTimestamps();
     });
     
-    // In _initMap(), update the moveend handler:
     this._map.on('moveend', () => {
       const currentCenter = this._map.getCenter();
       const lockedCenter = this._lockedCenter || this._lastCenter;
@@ -272,7 +290,7 @@ class WillyWeatherRadarCard extends LitElement {
       }
     });
   }
-
+  
   async _startAutoUpdate() {
     await this._loadTimestamps();
     
@@ -594,12 +612,24 @@ class WillyWeatherRadarCardEditor extends LitElement {
     return css`
       .option {
         padding: 16px 0;
+        border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      }
+      
+      .option:last-child {
+        border-bottom: none;
       }
 
       .option label {
         display: block;
         margin-bottom: 8px;
         font-weight: 500;
+        color: var(--primary-text-color);
+      }
+      
+      .option .description {
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        margin-bottom: 8px;
       }
 
       ha-textfield {
@@ -615,7 +645,8 @@ class WillyWeatherRadarCardEditor extends LitElement {
 
     return html`
       <div class="option">
-        <label>Initial Zoom Level (1-15)</label>
+        <label>Initial Zoom Level</label>
+        <div class="description">Zoom level from 1 (continent) to 15 (street level)</div>
         <ha-textfield
           type="number"
           .value=${this.config.zoom || 10}
@@ -625,15 +656,43 @@ class WillyWeatherRadarCardEditor extends LitElement {
           .configValue=${"zoom"}
         ></ha-textfield>
       </div>
+      
       <div class="option">
-        <label>Animation Frames (3-10)</label>
+        <label>Animation Frames</label>
+        <div class="description">Number of radar frames to show (3-5 recommended)</div>
         <ha-textfield
           type="number"
-          .value=${this.config.frames || 7}
+          .value=${this.config.frames || 5}
           .min=${3}
-          .max=${10}
+          .max=${5}
           @input=${this._valueChanged}
           .configValue=${"frames"}
+        ></ha-textfield>
+      </div>
+      
+      <div class="option">
+        <label>Latitude (Optional)</label>
+        <div class="description">Leave empty to use Home location</div>
+        <ha-textfield
+          type="number"
+          step="0.0001"
+          .value=${this.config.latitude || ''}
+          @input=${this._valueChanged}
+          .configValue=${"latitude"}
+          placeholder="e.g. -37.8136"
+        ></ha-textfield>
+      </div>
+      
+      <div class="option">
+        <label>Longitude (Optional)</label>
+        <div class="description">Leave empty to use Home location</div>
+        <ha-textfield
+          type="number"
+          step="0.0001"
+          .value=${this.config.longitude || ''}
+          @input=${this._valueChanged}
+          .configValue=${"longitude"}
+          placeholder="e.g. 144.9631"
         ></ha-textfield>
       </div>
     `;
@@ -646,7 +705,15 @@ class WillyWeatherRadarCardEditor extends LitElement {
 
     const target = ev.target;
     const configValue = target.configValue;
-    const value = parseInt(target.value);
+    let value = target.value;
+    
+    // Parse numbers
+    if (configValue === 'zoom' || configValue === 'frames') {
+      value = parseInt(value);
+    } else if (configValue === 'latitude' || configValue === 'longitude') {
+      // Allow empty string for optional fields
+      value = value === '' ? null : parseFloat(value);
+    }
 
     if (this.config[configValue] === value) {
       return;
