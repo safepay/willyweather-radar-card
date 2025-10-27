@@ -259,9 +259,27 @@ class WillyWeatherRadarCard extends LitElement {
         return;
       }
   
-      // Only initialize if we truly don't have a working map
-      if (!this._map) {
-        console.log('Initializing map');
+      // Check if map exists AND is still attached to DOM
+      const mapNeedsInit = !this._map || 
+                           !this._map.getContainer() || 
+                           this._map.getContainer() !== mapElement;
+  
+      if (mapNeedsInit) {
+        console.log('Map needs initialization:', 
+          !this._map ? 'no map object' : 
+          !this._map.getContainer() ? 'no container' : 
+          'container mismatch');
+  
+        // Clean up old map completely
+        if (this._map) {
+          try {
+            this._map.remove();
+            console.log('Removed old map');
+          } catch (e) {
+            console.log('Error removing old map:', e);
+          }
+          this._map = null;
+        }
   
         // Stop any existing intervals
         if (this._reloadInterval) {
@@ -274,12 +292,18 @@ class WillyWeatherRadarCard extends LitElement {
           this._animationInterval = null;
         }
   
+        // Clean the element
+        if (mapElement._leaflet_id) {
+          delete mapElement._leaflet_id;
+          console.log('Cleared Leaflet ID from element');
+        }
+  
         // Initialize fresh
         this._initMap();
   
         if (!this._map) {
           console.error('Map initialization failed - _map is still null');
-          this._loading = false; // Clear loading state
+          this._loading = false;
           return;
         }
   
@@ -295,11 +319,11 @@ class WillyWeatherRadarCard extends LitElement {
         this._setupVisibilityObserver();
         this._setupPageVisibility();
       } else {
-        console.log('Map already exists, skipping initialization');
+        console.log('Map already properly initialized and attached');
       }
     } catch (error) {
       console.error('Error in _initialize:', error);
-      this._loading = false; // Make sure to clear loading state on error
+      this._loading = false;
     }
   }
   
